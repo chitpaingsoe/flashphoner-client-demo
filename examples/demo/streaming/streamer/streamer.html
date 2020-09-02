@@ -7,6 +7,18 @@
     <link rel="stylesheet" href="../../dependencies/bootstrap/font-awesome/css/font-awesome.min.css">
     <link rel="stylesheet" href="streamer.css">
     <title>Streamer</title>
+     <!-- Load TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.2"></script>
+  <!-- Load BodyPix -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.0"></script>
+
+  <!-- ayame -->
+  <script src="https://unpkg.com/@open-ayame/ayame-web-sdk@19.9.0/dist/ayame.min.js"></script>
+  <script>
+    const signalingUrl = 'wss://ayame-lite.shiguredo.jp/signaling';
+    const defaultRoomId = 'bodypix-test-room';
+    let ayameConn = null;
+  </script>
     <script type="text/javascript" src="../../../../flashphoner.js"></script>
     <script type="text/javascript" src="../../dependencies/jquery/jquery-1.12.0.js"></script>
     <script type="text/javascript" src="../../dependencies/js/utils.js"></script>
@@ -23,6 +35,17 @@
 
         <h2 id="notifyFlash" class="text-danger"></h2>
         <div class="col-sm-10 text-center">
+            <div style="grid-column: 1;">
+      
+                <video id="local_video2" width="640px" height="480px"
+                hidden
+                  style="border: solid black 1px; width:160px; height:120px"></video>
+              </div>
+              <div style="grid-column:2;">
+                
+                <canvas hidden id="canvas" width="640px" height="480px" style="border: solid 1px black; width:160px; height:120px;" />
+              </div>
+            </div>
             <div class="col-sm-5">
                 <div id="localVideo" class="fp-localVideo"></div>
                 <div class="text-center text-muted">Local</div>

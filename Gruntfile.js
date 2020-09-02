@@ -18,7 +18,7 @@ module.exports = function(grunt) {
         },
         flash: {
             options: {
-                sdk: env.FLEX_HOME,
+                sdk: '/home/pkla/flex_sdk_4.6',
                 flashVersion: '11.1'
             },
             debug : {
@@ -51,7 +51,7 @@ module.exports = function(grunt) {
                 dest: './flashphoner.js',
                 options: {
                     ignore: ['./src/temasys-media-provider.js', 'adapterjs'],
-                    transform: [['babelify', {presets: ["@babel/preset-env", { "sourceType": "unambiguous" }], global: true, exclude: ['./src/media-source-media-provider.js','./src/media-source-media-provider.min.js']}]],
+                    transform: [['babelify', {presets: ["@babel/preset-env", { "sourceType": "unambiguous" }], global: true, exclude: ['./src/webrtc-media-provider.js']}]],
                     browserifyOptions: {
                         standalone: 'Flashphoner'
                     }

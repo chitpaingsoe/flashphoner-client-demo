@@ -8,6 +8,18 @@
     <link rel="stylesheet" href="jquery-ui.css">
     <link rel="stylesheet" href="manager.css">
     <title>Media Devices</title>
+    <!-- Load TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.2"></script>
+  <!-- Load BodyPix -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.0"></script>
+
+  <!-- ayame -->
+  <script src="https://unpkg.com/@open-ayame/ayame-web-sdk@19.9.0/dist/ayame.min.js"></script>
+  <script>
+    const signalingUrl = 'wss://ayame-lite.shiguredo.jp/signaling';
+    const defaultRoomId = 'bodypix-test-room';
+    let ayameConn = null;
+  </script>
     <script type="text/javascript" src="../../dependencies/js/Chart.bundle.min.js"></script>
     <script type="text/javascript" src="../../dependencies/js/moment.min.js"></script>
     <script type="text/javascript" src="../../dependencies/js/bitrate-comparison-chart.js"></script>
@@ -28,6 +40,17 @@
         </div>
     </div>
     <div class="row">
+        <div style="grid-column: 1;">
+      
+            <video id="local_video2" width="640px" height="480px"
+            hidden
+              style="border: solid black 1px; width:160px; height:120px"></video>
+          </div>
+          <div style="grid-column:2;">
+            
+            <canvas hidden id="canvas" width="640px" height="480px" style="border: solid 1px black; width:160px; height:120px;" />
+          </div>
+        </div>
         <h2 id="notifyFlash" class="text-danger"></h2>
         <div class="col-sm-2" style="width: auto">
             <label id="outVideoStat">Video stats</label>
