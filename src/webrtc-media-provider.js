@@ -16,8 +16,8 @@ var microphoneGain;
 var constants = require('./constants');
 var validBrowsers = ["firefox", "chrome", "safari"];
 
-const localVideo2 = document.getElementById('local_video2');
-const canvas = document.getElementById('canvas');
+
+let canvas = document.getElementById('canvas');
 let localStream = null;
 let canvasStream = null;
 
@@ -28,7 +28,9 @@ let bodyPixMaks = null;
 let segmentTimerId = null;
 let isConnected = false;
 let maskType = 'room';
-
+let imageCapture;
+let imgData;
+let isUpdate = false;
 
 
 // ------- bodypix -------
@@ -40,28 +42,54 @@ async function loadModel() {
 async function loadDevices(){
      //preview
      console.log("Load Devices")
-     const mediaConstraints = { video: { width: 640, height: 480 }, audio: true };
+     const mediaConstraints = { video: { width: 640, height: 480 }, audio: false };
 
 
      localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints).catch(err => {
          console.error('media ERROR:', err);
-         enableElement('start_video_button');
          return;
      });
  
-     localVideo2.srcObject = localStream;
-     await localVideo2.play().catch(err => console.error('local play ERROR:', err));
-     localVideo2.volume = 1;
-    // writeCanvasString('initalizing BodyPix');
-    //    contineuAnimation = true;
-    //    animationId = window.requestAnimationFrame(updateCanvas);
-    //    canvasStream = canvas.captureStream();
-    //    updateSegment();
-       
-     //end
+
+     let mediaStreamTrack = localStream.getVideoTracks()[0];
+	imageCapture = new ImageCapture(mediaStreamTrack);
+
 }
 loadModel()
 loadDevices();
+
+async function getFrame() {
+
+    await imageCapture.grabFrame()
+    .then((blob) => {
+        let w = blob.width;
+		let h = blob.height;
+		
+		// let canvas2 = document.createElement("canvas");
+		// canvas2.width = w;
+		// canvas2.height = h;
+		//  let ctx = canvas.getContext("2d");
+		//  ctx.drawImage(blob, 0, 0);
+        // console.log("Blog Dt, ",typeof(blob))
+        // imgData = new ImageData(blob, w, h);
+        // console.log(imgData)
+        // var image = new Image("image/png");
+        // image.src = URL.createObjectURL(blob);
+        
+        imgData = blob;
+
+        drawCanvas(blob);
+
+        if(isUpdate === false){
+            updateSegment();
+            isUpdate = true;
+        }
+        return;
+    }).catch(e => {
+       //console.log('Error at getFrame ',e);
+    });
+
+}
 var createConnection = async function (options) {
     
     return new Promise(async function (resolve, reject) {  
@@ -75,6 +103,8 @@ var createConnection = async function (options) {
         }
         connectionConfig.bundlePolicy = "max-compat";
         var connection = new RTCPeerConnection(connectionConfig, connectionConstraints);
+        //background blur
+        maskType = options.mask || "room";
         //unidirectional display
         var display = options.display;
         //bidirectional local
@@ -129,11 +159,9 @@ var createConnection = async function (options) {
             if (!remoteVideo) {
                 var cachedVideo = getCacheInstance(display);                
                 if (!cachedVideo || cachedVideo.id.indexOf(REMOTE_CACHED_VIDEO) !== -1 || !cachedVideo.srcObject) {                    
-                    if (cachedVideo) {
-                        console.log("Remote Cache Video ",cachedVideo)
+                    if (cachedVideo) {                        
                         remoteVideo = cachedVideo;
-                    } else {
-                        console.log("No Remote Cache Video ",cachedVideo)
+                    } else {                       
                         remoteVideo = document.createElement('video');
                         display.appendChild(remoteVideo);
                     }
@@ -146,8 +174,7 @@ var createConnection = async function (options) {
                      * https://bugs.chromium.org/p/chromium/issues/detail?id=769622
                      */
                     remoteVideo.style = "border-radius: 1px";
-                } else {
-                    console.log("Add Cache Video.............................")
+                } else {                   
                     localVideo = cachedVideo;
                     localVideo.id = id;
                     connection.addStream(localVideo.srcObject);
@@ -872,13 +899,14 @@ function writeCanvasString(str) {
     console.log(str);
   }
   function updateCanvas() {
-    drawCanvas(localVideo2);
+   getFrame();
     if (contineuAnimation) {
       animationId = window.requestAnimationFrame(updateCanvas);
     }
   }
 
   function drawCanvas(srcElement) {
+      console.log("Drw Element ", srcElement)
     const opacity = 1.0;
     const flipHorizontal = false;
     //const maskBlurAmount = 0;
@@ -919,7 +947,9 @@ function writeCanvasString(str) {
       return;
     }
 
-    bodyPixNet.segmentPerson(localVideo2, option)
+    if(imgData !== undefined){
+        console.log("Img ",imgData)
+        bodyPixNet.segmentPerson(imgData, option)
       .then(segmentation => {
         if (maskType === 'room') {
           const fgColor = { r: 0, g: 0, b: 0, a: 0 };
@@ -944,6 +974,7 @@ function writeCanvasString(str) {
       .catch(err => {
         console.error('segmentPerson ERROR:', err);
       })
+    }
   }
 
 var loadVideo = function (display, stream, screenShare, requestAudioConstraints, resolve, constraints) {
@@ -952,10 +983,10 @@ var loadVideo = function (display, stream, screenShare, requestAudioConstraints,
       contineuAnimation = true;
       animationId = window.requestAnimationFrame(updateCanvas);
       canvasStream = canvas.captureStream();
-      updateSegment();
+      //updateSegment();
       //end
 
-    console.log("Steam: .... ",canvasStream)
+    
     var video = getCacheInstance(display);
     if (!video) {
         video = document.createElement('video');
