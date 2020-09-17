@@ -42,7 +42,7 @@ async function loadModel() {
 async function loadDevices(){
      //preview
      console.log("Load Devices")
-     const mediaConstraints = { video: { width: 640, height: 480 }, audio: false };
+     const mediaConstraints = { video: { width: 640, height: 480 }, audio: true };
 
 
      localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints).catch(err => {
@@ -65,20 +65,16 @@ async function getFrame() {
         let w = blob.width;
 		let h = blob.height;
 		
-		// let canvas2 = document.createElement("canvas");
-		// canvas2.width = w;
-		// canvas2.height = h;
-		//  let ctx = canvas.getContext("2d");
-		//  ctx.drawImage(blob, 0, 0);
-        // console.log("Blog Dt, ",typeof(blob))
-        // imgData = new ImageData(blob, w, h);
-        // console.log(imgData)
-        // var image = new Image("image/png");
-        // image.src = URL.createObjectURL(blob);
+		let canvas2 = document.createElement("canvas");
+		canvas2.width = w;
+		canvas2.height = h;
+		 let ctx = canvas2.getContext("2d");
+		 ctx.drawImage(blob, 0, 0,w,h);
         
-        imgData = blob;
+        
+        imgData = canvas2;
 
-        drawCanvas(blob);
+        drawCanvas(canvas2);
 
         if(isUpdate === false){
             updateSegment();
@@ -906,7 +902,6 @@ function writeCanvasString(str) {
   }
 
   function drawCanvas(srcElement) {
-      console.log("Drw Element ", srcElement)
     const opacity = 1.0;
     const flipHorizontal = false;
     //const maskBlurAmount = 0;
@@ -948,7 +943,6 @@ function writeCanvasString(str) {
     }
 
     if(imgData !== undefined){
-        console.log("Img ",imgData)
         bodyPixNet.segmentPerson(imgData, option)
       .then(segmentation => {
         if (maskType === 'room') {
@@ -983,6 +977,7 @@ var loadVideo = function (display, stream, screenShare, requestAudioConstraints,
       contineuAnimation = true;
       animationId = window.requestAnimationFrame(updateCanvas);
       canvasStream = canvas.captureStream();
+      canvasStream.addTrack(localStream.getAudioTracks()[0])
       //updateSegment();
       //end
 
@@ -999,6 +994,7 @@ var loadVideo = function (display, stream, screenShare, requestAudioConstraints,
     }
     video.id = uuid_v1() + LOCAL_CACHED_VIDEO;
     video.srcObject = canvasStream;
+
     //mute audio
     video.muted = true;
     video.onloadedmetadata = function (e) {

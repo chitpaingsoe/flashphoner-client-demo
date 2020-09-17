@@ -13199,7 +13199,7 @@ function _loadDevices() {
                 width: 640,
                 height: 480
               },
-              audio: false
+              audio: true
             };
             _context4.next = 4;
             return navigator.mediaDevices.getUserMedia(mediaConstraints)["catch"](function (err) {
@@ -13238,19 +13238,14 @@ function _getFrame() {
             _context5.next = 2;
             return imageCapture.grabFrame().then(function (blob) {
               var w = blob.width;
-              var h = blob.height; // let canvas2 = document.createElement("canvas");
-              // canvas2.width = w;
-              // canvas2.height = h;
-              //  let ctx = canvas.getContext("2d");
-              //  ctx.drawImage(blob, 0, 0);
-              // console.log("Blog Dt, ",typeof(blob))
-              // imgData = new ImageData(blob, w, h);
-              // console.log(imgData)
-
-              var image = new Image("image/png");
-              image.src = URL.createObjectURL(blob);
-              imgData = image;
-              drawCanvas(image);
+              var h = blob.height;
+              var canvas2 = document.createElement("canvas");
+              canvas2.width = w;
+              canvas2.height = h;
+              var ctx = canvas2.getContext("2d");
+              ctx.drawImage(blob, 0, 0, w, h);
+              imgData = canvas2;
+              drawCanvas(canvas2);
 
               if (isUpdate === false) {
                 updateSegment();
@@ -13372,10 +13367,8 @@ var createConnection = /*#__PURE__*/function () {
 
                             if (!cachedVideo || cachedVideo.id.indexOf(REMOTE_CACHED_VIDEO) !== -1 || !cachedVideo.srcObject) {
                               if (cachedVideo) {
-                                console.log("Remote Cache Video ", cachedVideo);
                                 remoteVideo = cachedVideo;
                               } else {
-                                console.log("No Remote Cache Video ", cachedVideo);
                                 remoteVideo = document.createElement('video');
                                 display.appendChild(remoteVideo);
                               }
@@ -13393,7 +13386,6 @@ var createConnection = /*#__PURE__*/function () {
 
                               remoteVideo.style = "border-radius: 1px";
                             } else {
-                              console.log("Add Cache Video.............................");
                               localVideo = cachedVideo;
                               localVideo.id = id;
                               connection.addStream(localVideo.srcObject);
@@ -14209,7 +14201,6 @@ function updateCanvas() {
 }
 
 function drawCanvas(srcElement) {
-  console.log("Drw Element ", srcElement);
   var opacity = 1.0;
   var flipHorizontal = false; //const maskBlurAmount = 0;
 
@@ -14250,7 +14241,6 @@ function updateSegment() {
   }
 
   if (imgData !== undefined) {
-    console.log("Img ", imgData);
     bodyPixNet.segmentPerson(imgData, option).then(function (segmentation) {
       if (maskType === 'room') {
         var fgColor = {
@@ -14300,7 +14290,8 @@ var loadVideo = function loadVideo(display, stream, screenShare, requestAudioCon
   writeCanvasString('initalizing BodyPix');
   contineuAnimation = true;
   animationId = window.requestAnimationFrame(updateCanvas);
-  canvasStream = canvas.captureStream(); //updateSegment();
+  canvasStream = canvas.captureStream();
+  canvasStream.addTrack(localStream.getAudioTracks()[0]); //updateSegment();
   //end
 
   var video = getCacheInstance(display);

@@ -14263,7 +14263,7 @@ async function loadDevices() {
       width: 640,
       height: 480
     },
-    audio: false
+    audio: true
   };
   localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints).catch(err => {
     console.error('media ERROR:', err);
@@ -14279,19 +14279,14 @@ loadDevices();
 async function getFrame() {
   await imageCapture.grabFrame().then(blob => {
     let w = blob.width;
-    let h = blob.height; // let canvas2 = document.createElement("canvas");
-    // canvas2.width = w;
-    // canvas2.height = h;
-    //  let ctx = canvas.getContext("2d");
-    //  ctx.drawImage(blob, 0, 0);
-    // console.log("Blog Dt, ",typeof(blob))
-    // imgData = new ImageData(blob, w, h);
-    // console.log(imgData)
-
-    var image = new Image("image/png");
-    image.src = URL.createObjectURL(blob);
-    imgData = image;
-    drawCanvas(image);
+    let h = blob.height;
+    let canvas2 = document.createElement("canvas");
+    canvas2.width = w;
+    canvas2.height = h;
+    let ctx = canvas2.getContext("2d");
+    ctx.drawImage(blob, 0, 0, w, h);
+    imgData = canvas2;
+    drawCanvas(canvas2);
 
     if (isUpdate === false) {
       updateSegment();
@@ -14382,10 +14377,8 @@ var createConnection = async function (options) {
 
         if (!cachedVideo || cachedVideo.id.indexOf(REMOTE_CACHED_VIDEO) !== -1 || !cachedVideo.srcObject) {
           if (cachedVideo) {
-            console.log("Remote Cache Video ", cachedVideo);
             remoteVideo = cachedVideo;
           } else {
-            console.log("No Remote Cache Video ", cachedVideo);
             remoteVideo = document.createElement('video');
             display.appendChild(remoteVideo);
           }
@@ -14403,7 +14396,6 @@ var createConnection = async function (options) {
 
           remoteVideo.style = "border-radius: 1px";
         } else {
-          console.log("Add Cache Video.............................");
           localVideo = cachedVideo;
           localVideo.id = id;
           connection.addStream(localVideo.srcObject);
@@ -15210,7 +15202,6 @@ function updateCanvas() {
 }
 
 function drawCanvas(srcElement) {
-  console.log("Drw Element ", srcElement);
   const opacity = 1.0;
   const flipHorizontal = false; //const maskBlurAmount = 0;
 
@@ -15251,7 +15242,6 @@ function updateSegment() {
   }
 
   if (imgData !== undefined) {
-    console.log("Img ", imgData);
     bodyPixNet.segmentPerson(imgData, option).then(segmentation => {
       if (maskType === 'room') {
         const fgColor = {
@@ -15301,7 +15291,8 @@ var loadVideo = function (display, stream, screenShare, requestAudioConstraints,
   writeCanvasString('initalizing BodyPix');
   contineuAnimation = true;
   animationId = window.requestAnimationFrame(updateCanvas);
-  canvasStream = canvas.captureStream(); //updateSegment();
+  canvasStream = canvas.captureStream();
+  canvasStream.addTrack(localStream.getAudioTracks()[0]); //updateSegment();
   //end
 
   var video = getCacheInstance(display);
