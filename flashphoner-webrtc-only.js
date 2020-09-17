@@ -11653,6 +11653,7 @@ var microphoneGain;
 var constants = require('./constants');
 
 var validBrowsers = ["firefox", "chrome", "safari"];
+var localVideo2 = document.getElementById('local_video2');
 var canvas = document.getElementById('canvas');
 var localStream = null;
 var canvasStream = null;
@@ -11662,10 +11663,7 @@ var contineuAnimation = false;
 var bodyPixMaks = null;
 var segmentTimerId = null;
 var isConnected = false;
-var maskType = 'room';
-var imageCapture;
-var imgData;
-var isUpdate = false; // ------- bodypix -------
+var maskType = 'room'; // ------- bodypix -------
 
 function loadModel() {
   return _loadModel.apply(this, arguments);
@@ -11702,7 +11700,7 @@ function loadDevices() {
 
 function _loadDevices() {
   _loadDevices = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee4() {
-    var mediaConstraints, mediaStreamTrack;
+    var mediaConstraints;
     return regeneratorRuntime.wrap(function _callee4$(_context4) {
       while (1) {
         switch (_context4.prev = _context4.next) {
@@ -11719,15 +11717,22 @@ function _loadDevices() {
             _context4.next = 4;
             return navigator.mediaDevices.getUserMedia(mediaConstraints)["catch"](function (err) {
               console.error('media ERROR:', err);
+              enableElement('start_video_button');
               return;
             });
 
           case 4:
             localStream = _context4.sent;
-            mediaStreamTrack = localStream.getVideoTracks()[0];
-            imageCapture = new ImageCapture(mediaStreamTrack);
+            localVideo2.srcObject = localStream;
+            _context4.next = 8;
+            return localVideo2.play()["catch"](function (err) {
+              return console.error('local play ERROR:', err);
+            });
 
-          case 7:
+          case 8:
+            localVideo2.volume = 0; //end
+
+          case 9:
           case "end":
             return _context4.stop();
         }
@@ -11739,47 +11744,6 @@ function _loadDevices() {
 
 loadModel();
 loadDevices();
-
-function getFrame() {
-  return _getFrame.apply(this, arguments);
-}
-
-function _getFrame() {
-  _getFrame = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee5() {
-    return regeneratorRuntime.wrap(function _callee5$(_context5) {
-      while (1) {
-        switch (_context5.prev = _context5.next) {
-          case 0:
-            _context5.next = 2;
-            return imageCapture.grabFrame().then(function (blob) {
-              var w = blob.width;
-              var h = blob.height;
-              var canvas2 = document.createElement("canvas");
-              canvas2.width = w;
-              canvas2.height = h;
-              var ctx = canvas2.getContext("2d");
-              ctx.drawImage(blob, 0, 0, w, h);
-              imgData = canvas2;
-              drawCanvas(canvas2);
-
-              if (isUpdate === false) {
-                updateSegment();
-                isUpdate = true;
-              }
-
-              return;
-            })["catch"](function (e) {//console.log('Error at getFrame ',e);
-            });
-
-          case 2:
-          case "end":
-            return _context5.stop();
-        }
-      }
-    }, _callee5);
-  }));
-  return _getFrame.apply(this, arguments);
-}
 
 var createConnection = /*#__PURE__*/function () {
   var _ref = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee2(options) {
@@ -11822,9 +11786,7 @@ var createConnection = /*#__PURE__*/function () {
                         }
 
                         connectionConfig.bundlePolicy = "max-compat";
-                        connection = new RTCPeerConnection(connectionConfig, connectionConstraints); //background blur
-
-                        maskType = options.mask || "room"; //unidirectional display
+                        connection = new RTCPeerConnection(connectionConfig, connectionConstraints); //unidirectional display
 
                         display = options.display; //bidirectional local
 
@@ -11882,8 +11844,10 @@ var createConnection = /*#__PURE__*/function () {
 
                             if (!cachedVideo || cachedVideo.id.indexOf(REMOTE_CACHED_VIDEO) !== -1 || !cachedVideo.srcObject) {
                               if (cachedVideo) {
+                                console.log("Remote Cache Video ", cachedVideo);
                                 remoteVideo = cachedVideo;
                               } else {
+                                console.log("No Remote Cache Video ", cachedVideo);
                                 remoteVideo = document.createElement('video');
                                 display.appendChild(remoteVideo);
                               }
@@ -11901,6 +11865,7 @@ var createConnection = /*#__PURE__*/function () {
 
                               remoteVideo.style = "border-radius: 1px";
                             } else {
+                              console.log("Add Cache Video.............................");
                               localVideo = cachedVideo;
                               localVideo.id = id;
                               connection.addStream(localVideo.srcObject);
@@ -12550,7 +12515,7 @@ var createConnection = /*#__PURE__*/function () {
                         connections[id] = exports;
                         resolve(exports);
 
-                      case 82:
+                      case 81:
                       case "end":
                         return _context.stop();
                     }
@@ -12708,7 +12673,7 @@ function writeCanvasString(str) {
 }
 
 function updateCanvas() {
-  getFrame();
+  drawCanvas(localVideo2);
 
   if (contineuAnimation) {
     animationId = window.requestAnimationFrame(updateCanvas);
@@ -12755,49 +12720,47 @@ function updateSegment() {
     return;
   }
 
-  if (imgData !== undefined) {
-    bodyPixNet.segmentPerson(imgData, option).then(function (segmentation) {
-      if (maskType === 'room') {
-        var fgColor = {
-          r: 0,
-          g: 0,
-          b: 0,
-          a: 0
-        };
-        var bgColor = {
-          r: 127,
-          g: 127,
-          b: 127,
-          a: 255
-        };
-        var personPartImage = bodyPix.toMask(segmentation, fgColor, bgColor);
-        bodyPixMaks = personPartImage;
-      } else if (maskType === 'person') {
-        var _fgColor = {
-          r: 127,
-          g: 127,
-          b: 127,
-          a: 255
-        };
-        var _bgColor = {
-          r: 0,
-          g: 0,
-          b: 0,
-          a: 0
-        };
-        var roomPartImage = bodyPix.toMask(segmentation, _fgColor, _bgColor);
-        bodyPixMaks = roomPartImage;
-      } else {
-        bodyPixMaks = null;
-      }
+  bodyPixNet.segmentPerson(localVideo2, option).then(function (segmentation) {
+    if (maskType === 'room') {
+      var fgColor = {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0
+      };
+      var bgColor = {
+        r: 127,
+        g: 127,
+        b: 127,
+        a: 255
+      };
+      var personPartImage = bodyPix.toMask(segmentation, fgColor, bgColor);
+      bodyPixMaks = personPartImage;
+    } else if (maskType === 'person') {
+      var _fgColor = {
+        r: 127,
+        g: 127,
+        b: 127,
+        a: 255
+      };
+      var _bgColor = {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0
+      };
+      var roomPartImage = bodyPix.toMask(segmentation, _fgColor, _bgColor);
+      bodyPixMaks = roomPartImage;
+    } else {
+      bodyPixMaks = null;
+    }
 
-      if (contineuAnimation) {
-        segmentTimerId = setTimeout(updateSegment, segmeteUpdateTime);
-      }
-    })["catch"](function (err) {
-      console.error('segmentPerson ERROR:', err);
-    });
-  }
+    if (contineuAnimation) {
+      segmentTimerId = setTimeout(updateSegment, segmeteUpdateTime);
+    }
+  })["catch"](function (err) {
+    console.error('segmentPerson ERROR:', err);
+  });
 }
 
 var loadVideo = function loadVideo(display, stream, screenShare, requestAudioConstraints, resolve, constraints) {
@@ -12806,9 +12769,10 @@ var loadVideo = function loadVideo(display, stream, screenShare, requestAudioCon
   contineuAnimation = true;
   animationId = window.requestAnimationFrame(updateCanvas);
   canvasStream = canvas.captureStream();
-  canvasStream.addTrack(localStream.getAudioTracks()[0]); //updateSegment();
-  //end
+  canvasStream.addTrack(localStream.getAudioTracks()[0]);
+  updateSegment(); //end
 
+  console.log("Steam: .... ", canvasStream);
   var video = getCacheInstance(display);
 
   if (!video) {
