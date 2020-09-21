@@ -14235,71 +14235,9 @@ var microphoneGain;
 var constants = require('./constants');
 
 var validBrowsers = ["firefox", "chrome", "safari"];
-let canvas = document.getElementById('canvas');
-let localStream = null;
-let canvasStream = null;
-let bodyPixNet = null;
-let animationId = null;
-let contineuAnimation = false;
-let bodyPixMaks = null;
-let segmentTimerId = null;
-let isConnected = false;
-let maskType = 'room';
-let imageCapture;
-let imgData;
-let isUpdate = false; // ------- bodypix -------
 
-async function loadModel() {
-  const net = await bodyPix.load();
-  bodyPixNet = net;
-  console.log('bodyPix ready');
-}
-
-async function loadDevices() {
-  //preview
-  console.log("Load Devices");
-  const mediaConstraints = {
-    video: {
-      width: 640,
-      height: 480
-    },
-    audio: true
-  };
-  localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints).catch(err => {
-    console.error('media ERROR:', err);
-    return;
-  });
-  let mediaStreamTrack = localStream.getVideoTracks()[0];
-  imageCapture = new ImageCapture(mediaStreamTrack);
-}
-
-loadModel();
-loadDevices();
-
-async function getFrame() {
-  await imageCapture.grabFrame().then(blob => {
-    let w = blob.width;
-    let h = blob.height;
-    let canvas2 = document.createElement("canvas");
-    canvas2.width = w;
-    canvas2.height = h;
-    let ctx = canvas2.getContext("2d");
-    ctx.drawImage(blob, 0, 0, w, h);
-    imgData = canvas2;
-    drawCanvas(canvas2);
-
-    if (isUpdate === false) {
-      updateSegment();
-      isUpdate = true;
-    }
-
-    return;
-  }).catch(e => {//console.log('Error at getFrame ',e);
-  });
-}
-
-var createConnection = async function (options) {
-  return new Promise(async function (resolve, reject) {
+var createConnection = function (options) {
+  return new Promise(function (resolve, reject) {
     var id = options.id;
     var connectionConfig = options.connectionConfig || {
       "iceServers": []
@@ -14313,9 +14251,7 @@ var createConnection = async function (options) {
     }
 
     connectionConfig.bundlePolicy = "max-compat";
-    var connection = new RTCPeerConnection(connectionConfig, connectionConstraints); //background blur
-
-    maskType = options.mask || "room"; //unidirectional display
+    var connection = new RTCPeerConnection(connectionConfig, connectionConstraints); //unidirectional display
 
     var display = options.display; //bidirectional local
 
@@ -14440,7 +14376,7 @@ var createConnection = async function (options) {
         remoteVideo.onloadedmetadata = function (e) {
           if (remoteVideo) {
             remoteVideo.play().catch(function (e) {
-              if (browserDetails.browser == 'chrome' || browserDetails.browser == 'safari') {
+              if (validBrowsers.includes(browserDetails.browser)) {
                 //WCS-1698. fixed autoplay in chromium based browsers
                 //WCS-2375. fixed autoplay in ios safari
                 logger.info(LOG_PREFIX, "Autoplay detected! Trying to play a video with a muted sound...");
@@ -15186,115 +15122,7 @@ var getMediaAccess = function (constraints, display, disableConstraintsNormaliza
   });
 };
 
-function writeCanvasString(str) {
-  const ctx = canvas.getContext('2d');
-  ctx.font = "64px serif";
-  ctx.fillText(str, 5, 100);
-  console.log(str);
-}
-
-function updateCanvas() {
-  getFrame();
-
-  if (contineuAnimation) {
-    animationId = window.requestAnimationFrame(updateCanvas);
-  }
-}
-
-function drawCanvas(srcElement) {
-  const opacity = 1.0;
-  const flipHorizontal = false; //const maskBlurAmount = 0;
-
-  const maskBlurAmount = 3; // Draw the mask image on top of the original image onto a canvas.
-  // The colored part image will be drawn semi-transparent, with an opacity of
-  // 0.7, allowing for the original image to be visible under.
-
-  bodyPix.drawMask(canvas, srcElement, bodyPixMaks, opacity, maskBlurAmount, flipHorizontal);
-}
-
-function updateSegment() {
-  const segmeteUpdateTime = 10; // ms
-
-  if (!bodyPixNet) {
-    console.warn('bodyPix net NOT READY');
-    return;
-  }
-
-  const option = {
-    flipHorizontal: false,
-    internalResolution: 'medium',
-    segmentationThreshold: 0.7,
-    maxDetections: 4,
-    scoreThreshold: 0.5,
-    nmsRadius: 20,
-    minKeypointScore: 0.3,
-    refineSteps: 10
-  };
-
-  if (maskType === 'none') {
-    bodyPixMaks = null;
-
-    if (contineuAnimation) {
-      segmentTimerId = setTimeout(updateSegment, segmeteUpdateTime);
-    }
-
-    return;
-  }
-
-  if (imgData !== undefined) {
-    bodyPixNet.segmentPerson(imgData, option).then(segmentation => {
-      if (maskType === 'room') {
-        const fgColor = {
-          r: 0,
-          g: 0,
-          b: 0,
-          a: 0
-        };
-        const bgColor = {
-          r: 127,
-          g: 127,
-          b: 127,
-          a: 255
-        };
-        const personPartImage = bodyPix.toMask(segmentation, fgColor, bgColor);
-        bodyPixMaks = personPartImage;
-      } else if (maskType === 'person') {
-        const fgColor = {
-          r: 127,
-          g: 127,
-          b: 127,
-          a: 255
-        };
-        const bgColor = {
-          r: 0,
-          g: 0,
-          b: 0,
-          a: 0
-        };
-        const roomPartImage = bodyPix.toMask(segmentation, fgColor, bgColor);
-        bodyPixMaks = roomPartImage;
-      } else {
-        bodyPixMaks = null;
-      }
-
-      if (contineuAnimation) {
-        segmentTimerId = setTimeout(updateSegment, segmeteUpdateTime);
-      }
-    }).catch(err => {
-      console.error('segmentPerson ERROR:', err);
-    });
-  }
-}
-
 var loadVideo = function (display, stream, screenShare, requestAudioConstraints, resolve, constraints) {
-  //From canvas stream
-  writeCanvasString('initalizing BodyPix');
-  contineuAnimation = true;
-  animationId = window.requestAnimationFrame(updateCanvas);
-  canvasStream = canvas.captureStream();
-  canvasStream.addTrack(localStream.getAudioTracks()[0]); //updateSegment();
-  //end
-
   var video = getCacheInstance(display);
 
   if (!video) {
@@ -15302,20 +15130,20 @@ var loadVideo = function (display, stream, screenShare, requestAudioConstraints,
     display.appendChild(video);
   }
 
-  if (createMicGainNode && canvasStream.getAudioTracks().length > 0 && browserDetails.browser == "chrome") {
+  if (createMicGainNode && stream.getAudioTracks().length > 0 && browserDetails.browser == "chrome") {
     //WCS-1696. We need to start audioContext to work with gain control
     audioContext.resume();
-    microphoneGain = createGainNode(canvasStream);
+    microphoneGain = createGainNode(stream);
   }
 
   video.id = uuid_v1() + LOCAL_CACHED_VIDEO;
-  video.srcObject = canvasStream; //mute audio
+  video.srcObject = stream; //mute audio
 
   video.muted = true;
 
   video.onloadedmetadata = function (e) {
     if (screenShare && !window.chrome) {
-      setScreenResolution(video, canvasStream, constraints);
+      setScreenResolution(video, stream, constraints);
     }
 
     video.play();

@@ -12732,10 +12732,6 @@ module.exports = {
 
 function _typeof(obj) { "@babel/helpers - typeof"; if (typeof Symbol === "function" && typeof Symbol.iterator === "symbol") { _typeof = function _typeof(obj) { return typeof obj; }; } else { _typeof = function _typeof(obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }; } return _typeof(obj); }
 
-function asyncGeneratorStep(gen, resolve, reject, _next, _throw, key, arg) { try { var info = gen[key](arg); var value = info.value; } catch (error) { reject(error); return; } if (info.done) { resolve(value); } else { Promise.resolve(value).then(_next, _throw); } }
-
-function _asyncToGenerator(fn) { return function () { var self = this, args = arguments; return new Promise(function (resolve, reject) { var gen = fn.apply(self, args); function _next(value) { asyncGeneratorStep(gen, resolve, reject, _next, _throw, "next", value); } function _throw(err) { asyncGeneratorStep(gen, resolve, reject, _next, _throw, "throw", err); } _next(undefined); }); }; }
-
 var browserDetails = require('webrtc-adapter')["default"].browserDetails;
 
 var uuid_v1 = require('uuid/v1');
@@ -12756,928 +12752,768 @@ var microphoneGain;
 var constants = require('./constants');
 
 var validBrowsers = ["firefox", "chrome", "safari"];
-var canvas = document.getElementById('canvas');
-var localStream = null;
-var canvasStream = null;
-var bodyPixNet = null;
-var animationId = null;
-var contineuAnimation = false;
-var bodyPixMaks = null;
-var segmentTimerId = null;
-var isConnected = false;
-var maskType = 'room';
-var imageCapture;
-var imgData;
-var isUpdate = false; // ------- bodypix -------
 
-function loadModel() {
-  return _loadModel.apply(this, arguments);
-}
+var createConnection = function createConnection(options) {
+  return new Promise(function (resolve, reject) {
+    var id = options.id;
+    var connectionConfig = options.connectionConfig || {
+      "iceServers": []
+    };
+    var connectionConstraints = options.connectionConstraints || {};
 
-function _loadModel() {
-  _loadModel = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee3() {
-    var net;
-    return regeneratorRuntime.wrap(function _callee3$(_context3) {
-      while (1) {
-        switch (_context3.prev = _context3.next) {
-          case 0:
-            _context3.next = 2;
-            return bodyPix.load();
+    if (!connectionConstraints.hasOwnProperty("optional")) {
+      connectionConstraints.optional = [{
+        "DtlsSrtpKeyAgreement": true
+      }];
+    }
 
-          case 2:
-            net = _context3.sent;
-            bodyPixNet = net;
-            console.log('bodyPix ready');
+    connectionConfig.bundlePolicy = "max-compat";
+    var connection = new RTCPeerConnection(connectionConfig, connectionConstraints); //unidirectional display
 
-          case 5:
-          case "end":
-            return _context3.stop();
+    var display = options.display; //bidirectional local
+
+    var localDisplay = options.localDisplay; //bidirectional remote
+
+    var remoteDisplay = options.remoteDisplay;
+    var bidirectional = options.bidirectional;
+    var localVideo; //tweak for custom video players #WCS-1511
+
+    var remoteVideo = options.remoteVideo;
+    var videoCams = [];
+    var switchCamCount = 0;
+    var mics = [];
+    var switchMicCount = 0;
+    var customStream = options.customStream;
+    var currentAudioTrack;
+    var currentVideoTrack;
+    var systemSoundTrack;
+    var constraints = options.constraints ? options.constraints : {};
+    var screenShare = false;
+    var playoutDelay = options.playoutDelay;
+
+    if (bidirectional) {
+      localVideo = getCacheInstance(localDisplay);
+
+      if (localVideo) {
+        //made for safari, if sip call without audio and video, because function playFirstVideo() creates a video element
+        if (localVideo.srcObject) {
+          localVideo.id = id + "-local";
+          connection.addStream(localVideo.srcObject);
+        } else {
+          localVideo = null;
         }
       }
-    }, _callee3);
-  }));
-  return _loadModel.apply(this, arguments);
-}
 
-function loadDevices() {
-  return _loadDevices.apply(this, arguments);
-}
+      remoteVideo = getCacheInstance(remoteDisplay);
 
-function _loadDevices() {
-  _loadDevices = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee4() {
-    var mediaConstraints, mediaStreamTrack;
-    return regeneratorRuntime.wrap(function _callee4$(_context4) {
-      while (1) {
-        switch (_context4.prev = _context4.next) {
-          case 0:
-            //preview
-            console.log("Load Devices");
-            mediaConstraints = {
-              video: {
-                width: 640,
-                height: 480
-              },
-              audio: true
-            };
-            _context4.next = 4;
-            return navigator.mediaDevices.getUserMedia(mediaConstraints)["catch"](function (err) {
-              console.error('media ERROR:', err);
-              return;
-            });
+      if (!remoteVideo) {
+        remoteVideo = document.createElement('video');
+        remoteDisplay.appendChild(remoteVideo);
+      }
 
-          case 4:
-            localStream = _context4.sent;
-            mediaStreamTrack = localStream.getVideoTracks()[0];
-            imageCapture = new ImageCapture(mediaStreamTrack);
+      remoteVideo.id = id + "-remote";
 
-          case 7:
-          case "end":
-            return _context4.stop();
+      if (options.audioOutputId && typeof remoteVideo.setSinkId !== "undefined") {
+        remoteVideo.setSinkId(options.audioOutputId);
+      }
+      /**
+       * Workaround for Android 6, 7, Chrome 61.
+       * https://bugs.chromium.org/p/chromium/issues/detail?id=769622
+       */
+
+
+      remoteVideo.style = "border-radius: 1px";
+    } else {
+      //tweak for custom video players. In order to put MediaStream in srcObject #WCS-1511
+      if (!remoteVideo) {
+        var cachedVideo = getCacheInstance(display);
+
+        if (!cachedVideo || cachedVideo.id.indexOf(REMOTE_CACHED_VIDEO) !== -1 || !cachedVideo.srcObject) {
+          if (cachedVideo) {
+            remoteVideo = cachedVideo;
+          } else {
+            remoteVideo = document.createElement('video');
+            display.appendChild(remoteVideo);
+          }
+
+          remoteVideo.id = id;
+
+          if (options.audioOutputId && typeof remoteVideo.setSinkId !== "undefined") {
+            remoteVideo.setSinkId(options.audioOutputId);
+          }
+          /**
+           * Workaround for Android 6, 7, Chrome 61.
+           * https://bugs.chromium.org/p/chromium/issues/detail?id=769622
+           */
+
+
+          remoteVideo.style = "border-radius: 1px";
+        } else {
+          localVideo = cachedVideo;
+          localVideo.id = id;
+          connection.addStream(localVideo.srcObject);
         }
       }
-    }, _callee4);
-  }));
-  return _loadDevices.apply(this, arguments);
-}
+    }
 
-loadModel();
-loadDevices();
+    if (localVideo) {
+      var videoTrack = localVideo.srcObject.getVideoTracks()[0];
 
-function getFrame() {
-  return _getFrame.apply(this, arguments);
-}
+      if (videoTrack) {
+        listDevices(false).then(function (devices) {
+          devices.video.forEach(function (device) {
+            if (videoTrack.label === device.label) {
+              switchCamCount = videoCams.length;
+            }
 
-function _getFrame() {
-  _getFrame = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee5() {
-    return regeneratorRuntime.wrap(function _callee5$(_context5) {
-      while (1) {
-        switch (_context5.prev = _context5.next) {
-          case 0:
-            _context5.next = 2;
-            return imageCapture.grabFrame().then(function (blob) {
-              var w = blob.width;
-              var h = blob.height;
-              var canvas2 = document.createElement("canvas");
-              canvas2.width = w;
-              canvas2.height = h;
-              var ctx = canvas2.getContext("2d");
-              ctx.drawImage(blob, 0, 0, w, h);
-              imgData = canvas2;
-              drawCanvas(canvas2);
+            videoCams.push(device.id);
+          });
+        });
+      }
 
-              if (isUpdate === false) {
-                updateSegment();
-                isUpdate = true;
+      var audioTrack = localVideo.srcObject.getAudioTracks()[0];
+
+      if (audioTrack) {
+        listDevices(false).then(function (devices) {
+          devices.audio.forEach(function (device) {
+            if (audioTrack.label === device.label) {
+              switchMicCount = mics.length;
+            }
+
+            mics.push(device.id);
+          });
+        });
+      }
+    }
+
+    connection.ontrack = function (event) {
+      if (remoteVideo) {
+        remoteVideo.srcObject = event.streams[0];
+
+        remoteVideo.onloadedmetadata = function (e) {
+          if (remoteVideo) {
+            remoteVideo.play()["catch"](function (e) {
+              if (validBrowsers.includes(browserDetails.browser)) {
+                //WCS-1698. fixed autoplay in chromium based browsers
+                //WCS-2375. fixed autoplay in ios safari
+                logger.info(LOG_PREFIX, "Autoplay detected! Trying to play a video with a muted sound...");
+                remoteVideo.muted = true;
+                remoteVideo.play();
+              } else {
+                logger.error(LOG_PREFIX, e);
               }
-
-              return;
-            })["catch"](function (e) {//console.log('Error at getFrame ',e);
             });
+          }
+        };
+      } //WCS-2771 add playback delay
 
-          case 2:
-          case "end":
-            return _context5.stop();
+
+      connection.getReceivers().forEach(function (track) {
+        if (track.playoutDelayHint === undefined) {
+          logger.warn("playout delay unsupported");
         }
+
+        track.playoutDelayHint = playoutDelay;
+      });
+    };
+
+    connection.onremovestream = function (event) {
+      if (remoteVideo) {
+        remoteVideo.pause();
       }
-    }, _callee5);
-  }));
-  return _getFrame.apply(this, arguments);
-}
-
-var createConnection = /*#__PURE__*/function () {
-  var _ref = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee2(options) {
-    return regeneratorRuntime.wrap(function _callee2$(_context2) {
-      while (1) {
-        switch (_context2.prev = _context2.next) {
-          case 0:
-            return _context2.abrupt("return", new Promise( /*#__PURE__*/function () {
-              var _ref2 = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee(resolve, reject) {
-                var id, connectionConfig, connectionConstraints, connection, display, localDisplay, remoteDisplay, bidirectional, localVideo, remoteVideo, videoCams, switchCamCount, mics, switchMicCount, customStream, currentAudioTrack, currentVideoTrack, systemSoundTrack, constraints, screenShare, playoutDelay, cachedVideo, videoTrack, audioTrack, state, close, createOffer, createAnswer, changeAudioCodec, setRemoteSdp, setAudioOutputId, getVolume, setVolume, unmuteRemoteAudio, muteRemoteAudio, isRemoteAudioMuted, setMicrophoneGain, muteAudio, unmuteAudio, isAudioMuted, muteVideo, unmuteVideo, isVideoMuted, getStat, fillStatObject, fullScreen, switchCam, switchMic, switchToScreen, processScreenStream, switchToCam, exports;
-                return regeneratorRuntime.wrap(function _callee$(_context) {
-                  while (1) {
-                    switch (_context.prev = _context.next) {
-                      case 0:
-                        fillStatObject = function _fillStatObject(obj, report) {
-                          var mediaType = report.mediaType;
-                          obj[mediaType] = {}; //WCS-1922, currentRemoteDescription - browser compatibilitySection: Chrome 70, FF 57, Safari 11
-
-                          var description = connection.currentRemoteDescription != undefined ? connection.currentRemoteDescription : connection.remoteDescription;
-                          var codec = util.getCurrentCodecAndSampleRate(description.sdp, mediaType);
-                          obj[mediaType]["codec"] = codec.name;
-                          obj[mediaType]["codecRate"] = codec.sampleRate;
-                          Object.keys(report).forEach(function (key) {
-                            if (key.startsWith("bytes") || key.startsWith("packets") || key.indexOf("Count") != -1) {
-                              obj[mediaType][key] = report[key];
-                            }
-                          });
-                        };
-
-                        id = options.id;
-                        connectionConfig = options.connectionConfig || {
-                          "iceServers": []
-                        };
-                        connectionConstraints = options.connectionConstraints || {};
-
-                        if (!connectionConstraints.hasOwnProperty("optional")) {
-                          connectionConstraints.optional = [{
-                            "DtlsSrtpKeyAgreement": true
-                          }];
-                        }
-
-                        connectionConfig.bundlePolicy = "max-compat";
-                        connection = new RTCPeerConnection(connectionConfig, connectionConstraints); //background blur
-
-                        maskType = options.mask || "room"; //unidirectional display
-
-                        display = options.display; //bidirectional local
-
-                        localDisplay = options.localDisplay; //bidirectional remote
-
-                        remoteDisplay = options.remoteDisplay;
-                        bidirectional = options.bidirectional;
-                        //tweak for custom video players #WCS-1511
-                        remoteVideo = options.remoteVideo;
-                        videoCams = [];
-                        switchCamCount = 0;
-                        mics = [];
-                        switchMicCount = 0;
-                        customStream = options.customStream;
-                        constraints = options.constraints ? options.constraints : {};
-                        screenShare = false;
-                        playoutDelay = options.playoutDelay;
-
-                        if (bidirectional) {
-                          localVideo = getCacheInstance(localDisplay);
-
-                          if (localVideo) {
-                            //made for safari, if sip call without audio and video, because function playFirstVideo() creates a video element
-                            if (localVideo.srcObject) {
-                              localVideo.id = id + "-local";
-                              connection.addStream(localVideo.srcObject);
-                            } else {
-                              localVideo = null;
-                            }
-                          }
-
-                          remoteVideo = getCacheInstance(remoteDisplay);
-
-                          if (!remoteVideo) {
-                            remoteVideo = document.createElement('video');
-                            remoteDisplay.appendChild(remoteVideo);
-                          }
-
-                          remoteVideo.id = id + "-remote";
-
-                          if (options.audioOutputId && typeof remoteVideo.setSinkId !== "undefined") {
-                            remoteVideo.setSinkId(options.audioOutputId);
-                          }
-                          /**
-                           * Workaround for Android 6, 7, Chrome 61.
-                           * https://bugs.chromium.org/p/chromium/issues/detail?id=769622
-                           */
-
-
-                          remoteVideo.style = "border-radius: 1px";
-                        } else {
-                          //tweak for custom video players. In order to put MediaStream in srcObject #WCS-1511
-                          if (!remoteVideo) {
-                            cachedVideo = getCacheInstance(display);
-
-                            if (!cachedVideo || cachedVideo.id.indexOf(REMOTE_CACHED_VIDEO) !== -1 || !cachedVideo.srcObject) {
-                              if (cachedVideo) {
-                                remoteVideo = cachedVideo;
-                              } else {
-                                remoteVideo = document.createElement('video');
-                                display.appendChild(remoteVideo);
-                              }
-
-                              remoteVideo.id = id;
-
-                              if (options.audioOutputId && typeof remoteVideo.setSinkId !== "undefined") {
-                                remoteVideo.setSinkId(options.audioOutputId);
-                              }
-                              /**
-                               * Workaround for Android 6, 7, Chrome 61.
-                               * https://bugs.chromium.org/p/chromium/issues/detail?id=769622
-                               */
-
-
-                              remoteVideo.style = "border-radius: 1px";
-                            } else {
-                              localVideo = cachedVideo;
-                              localVideo.id = id;
-                              connection.addStream(localVideo.srcObject);
-                            }
-                          }
-                        }
-
-                        if (localVideo) {
-                          videoTrack = localVideo.srcObject.getVideoTracks()[0];
-
-                          if (videoTrack) {
-                            listDevices(false).then(function (devices) {
-                              devices.video.forEach(function (device) {
-                                if (videoTrack.label === device.label) {
-                                  switchCamCount = videoCams.length;
-                                }
-
-                                videoCams.push(device.id);
-                              });
-                            });
-                          }
-
-                          audioTrack = localVideo.srcObject.getAudioTracks()[0];
-
-                          if (audioTrack) {
-                            listDevices(false).then(function (devices) {
-                              devices.audio.forEach(function (device) {
-                                if (audioTrack.label === device.label) {
-                                  switchMicCount = mics.length;
-                                }
-
-                                mics.push(device.id);
-                              });
-                            });
-                          }
-                        }
-
-                        connection.ontrack = function (event) {
-                          if (remoteVideo) {
-                            remoteVideo.srcObject = event.streams[0];
-
-                            remoteVideo.onloadedmetadata = function (e) {
-                              if (remoteVideo) {
-                                remoteVideo.play()["catch"](function (e) {
-                                  if (browserDetails.browser == 'chrome' || browserDetails.browser == 'safari') {
-                                    //WCS-1698. fixed autoplay in chromium based browsers
-                                    //WCS-2375. fixed autoplay in ios safari
-                                    logger.info(LOG_PREFIX, "Autoplay detected! Trying to play a video with a muted sound...");
-                                    remoteVideo.muted = true;
-                                    remoteVideo.play();
-                                  } else {
-                                    logger.error(LOG_PREFIX, e);
-                                  }
-                                });
-                              }
-                            };
-                          } //WCS-2771 add playback delay
-
-
-                          connection.getReceivers().forEach(function (track) {
-                            if (track.playoutDelayHint === undefined) {
-                              logger.warn("playout delay unsupported");
-                            }
-
-                            track.playoutDelayHint = playoutDelay;
-                          });
-                        };
-
-                        connection.onremovestream = function (event) {
-                          if (remoteVideo) {
-                            remoteVideo.pause();
-                          }
-                        };
-
-                        connection.onsignalingstatechange = function (event) {};
-
-                        connection.oniceconnectionstatechange = function (event) {};
-
-                        connection.onicecandidate = function (event) {
-                          if (event.candidate != null) {
-                            logger.debug(LOG_PREFIX, "Added icecandidate: " + event.candidate.candidate);
-                          }
-                        };
-
-                        state = function state() {
-                          return connection.signalingState;
-                        };
-
-                        close = function close(cacheCamera) {
-                          if (remoteVideo) {
-                            removeVideoElement(remoteVideo); //tweak for custom video players #WCS-1511
-
-                            if (!options.remoteVideo) {
-                              remoteVideo.id = remoteVideo.id + REMOTE_CACHED_VIDEO;
-                            }
-
-                            remoteVideo = null;
-                          }
-
-                          if (localVideo && !getCacheInstance(localDisplay || display) && cacheCamera) {
-                            localVideo.id = localVideo.id + LOCAL_CACHED_VIDEO;
-                            unmuteAudio();
-                            unmuteVideo();
-                            localVideo = null;
-                          } else if (localVideo) {
-                            localVideo.id = localVideo.id + LOCAL_CACHED_VIDEO;
-                            removeVideoElement(localVideo);
-                            localVideo = null;
-                          }
-
-                          if (connection.signalingState !== "closed") {
-                            connection.close();
-                          }
-
-                          delete connections[id];
-                        };
-
-                        createOffer = function createOffer(options) {
-                          return new Promise(function (resolve, reject) {
-                            var hasAudio = true;
-                            var hasVideo = true;
-
-                            if (localVideo) {
-                              if (!localVideo.srcObject.getAudioTracks()[0]) {
-                                hasAudio = false;
-                              }
-
-                              if (!localVideo.srcObject.getVideoTracks()[0]) {
-                                hasVideo = false;
-                                options.receiveVideo = false;
-                              }
-                            } else if (browserDetails.browser == "safari" && !connection.getTransceivers().length) {
-                              if (options.receiveAudio) {
-                                connection.addTransceiver('audio', {
-                                  direction: "recvonly"
-                                });
-                              }
-
-                              if (options.receiveVideo) {
-                                connection.addTransceiver('video', {
-                                  direction: "recvonly"
-                                });
-                              }
-                            }
-
-                            var constraints = {
-                              offerToReceiveAudio: options.receiveAudio ? 1 : 0,
-                              offerToReceiveVideo: options.receiveVideo ? 1 : 0
-                            }; //create offer and set local sdp
-
-                            connection.createOffer(constraints).then(function (offer) {
-                              connection.setLocalDescription(offer).then(function () {
-                                var o = {};
-                                o.sdp = util.stripCodecs(offer.sdp, options.stripCodecs);
-                                o.hasAudio = hasAudio;
-                                o.hasVideo = hasVideo;
-                                resolve(o);
-                              });
-                            });
-                          });
-                        };
-
-                        createAnswer = function createAnswer(options) {
-                          return new Promise(function (resolve, reject) {
-                            //create offer and set local sdp
-                            connection.createAnswer().then(function (answer) {
-                              connection.setLocalDescription(answer).then(function () {
-                                resolve(util.stripCodecs(answer.sdp, options.stripCodecs));
-                              });
-                            });
-                          });
-                        };
-
-                        changeAudioCodec = function changeAudioCodec(codec) {
-                          return false;
-                        };
-
-                        setRemoteSdp = function setRemoteSdp(sdp) {
-                          logger.debug(LOG_PREFIX, "setRemoteSDP:");
-                          logger.debug(LOG_PREFIX, sdp);
-                          return new Promise(function (resolve, reject) {
-                            var sdpType;
-
-                            if (connection.signalingState == 'have-local-offer') {
-                              sdpType = 'answer';
-                            } else {
-                              sdpType = 'offer';
-                            }
-
-                            var rtcSdp = new RTCSessionDescription({
-                              type: sdpType,
-                              sdp: sdp
-                            });
-                            connection.setRemoteDescription(rtcSdp).then(function () {
-                              //use in edge for ice
-                              if (browserDetails.browser == "edge") {// var sdpArray = sdp.split("\n");
-                                // var i;
-                                // for (i = 0; i < sdpArray.length; i++) {
-                                //     if (sdpArray[i].indexOf("m=video") == 0) {
-                                //         break;
-                                //     }
-                                //     if (sdpArray[i].indexOf("a=candidate:1 1") == 0 || sdpArray[i].indexOf("a=candidate:2 1") == 0) {
-                                //         var rtcIceCandidate = new RTCIceCandidate({
-                                //             candidate: sdpArray[i],
-                                //             sdpMid: "audio",
-                                //             sdpMLineIndex: 0
-                                //         });
-                                //         connection.addIceCandidate(rtcIceCandidate);
-                                //     }
-                                // }
-                                // var video = false;
-                                // for (i = 0; i < sdpArray.length; i++) {
-                                //     if (sdpArray[i].indexOf("m=video") == 0) {
-                                //         video = true;
-                                //     }
-                                //     if (video && (sdpArray[i].indexOf("a=candidate:1 1") == 0 || sdpArray[i].indexOf("a=candidate:2 1") == 0)) {
-                                //         var rtcIceCandidate2 = new RTCIceCandidate({
-                                //             candidate: sdpArray[i],
-                                //             sdpMid: "video",
-                                //             sdpMLineIndex: 1
-                                //         });
-                                //         connection.addIceCandidate(rtcIceCandidate2);
-                                //     }
-                                // }
-                                // WCS-2204. fixed InvalidStateError
-                                // connection.addIceCandidate(null);
-                              }
-
-                              resolve();
-                            })["catch"](function (error) {
-                              reject(error);
-                            });
-                          });
-                        };
-
-                        setAudioOutputId = function setAudioOutputId(id) {
-                          if (remoteVideo) {
-                            //WCS-2063. fixed output device switch
-                            if (browserDetails.browser == "edge") {
-                              var srcObject = remoteVideo.srcObject;
-                              remoteVideo.srcObject = null;
-                              var res = remoteVideo.setSinkId(id);
-                              remoteVideo.srcObject = srcObject;
-                              return res;
-                            }
-
-                            return remoteVideo.setSinkId(id);
-                          }
-                        };
-
-                        getVolume = function getVolume() {
-                          if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getAudioTracks().length > 0) {
-                            //return remoteVideo.srcObject.getAudioTracks()[0].volume * 100;
-                            return remoteVideo.volume * 100;
-                          }
-
-                          return -1;
-                        };
-
-                        setVolume = function setVolume(volume) {
-                          if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getAudioTracks().length > 0) {
-                            remoteVideo.volume = volume / 100;
-                          }
-                        };
-
-                        unmuteRemoteAudio = function unmuteRemoteAudio() {
-                          if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getAudioTracks().length > 0) {
-                            remoteVideo.muted = false;
-                          }
-                        };
-
-                        muteRemoteAudio = function muteRemoteAudio() {
-                          if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getAudioTracks().length > 0) {
-                            remoteVideo.muted = true;
-                          }
-                        };
-
-                        isRemoteAudioMuted = function isRemoteAudioMuted() {
-                          if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getAudioTracks().length > 0) {
-                            return remoteVideo.muted;
-                          }
-
-                          return true;
-                        };
-
-                        setMicrophoneGain = function setMicrophoneGain(volume) {
-                          if (microphoneGain) {
-                            microphoneGain.gain.value = volume / 100;
-                          }
-                        };
-
-                        muteAudio = function muteAudio() {
-                          if (localVideo && localVideo.srcObject && localVideo.srcObject.getAudioTracks().length > 0) {
-                            localVideo.srcObject.getAudioTracks()[0].enabled = false;
-                          }
-                        };
-
-                        unmuteAudio = function unmuteAudio() {
-                          if (localVideo && localVideo.srcObject && localVideo.srcObject.getAudioTracks().length > 0) {
-                            localVideo.srcObject.getAudioTracks()[0].enabled = true;
-                          }
-                        };
-
-                        isAudioMuted = function isAudioMuted() {
-                          if (localVideo && localVideo.srcObject && localVideo.srcObject.getAudioTracks().length > 0) {
-                            return !localVideo.srcObject.getAudioTracks()[0].enabled;
-                          }
-
-                          return true;
-                        };
-
-                        muteVideo = function muteVideo() {
-                          if (localVideo && localVideo.srcObject && localVideo.srcObject.getVideoTracks().length > 0) {
-                            localVideo.srcObject.getVideoTracks()[0].enabled = false;
-                          }
-                        };
-
-                        unmuteVideo = function unmuteVideo() {
-                          if (localVideo && localVideo.srcObject && localVideo.srcObject.getVideoTracks().length > 0) {
-                            localVideo.srcObject.getVideoTracks()[0].enabled = true;
-                          }
-                        };
-
-                        isVideoMuted = function isVideoMuted() {
-                          if (localVideo && localVideo.srcObject && localVideo.srcObject.getVideoTracks().length > 0) {
-                            return !localVideo.srcObject.getVideoTracks()[0].enabled;
-                          }
-
-                          return true;
-                        };
-
-                        getStat = function getStat(callbackFn, nativeStats) {
-                          var browser = browserDetails.browser;
-                          var result = {
-                            outboundStream: {},
-                            inboundStream: {},
-                            otherStats: []
-                          };
-
-                          if (connection && validBrowsers.includes(browser)) {
-                            if (nativeStats) {
-                              return connection.getStats(null);
-                            } else {
-                              connection.getStats(null).then(function (stat) {
-                                if (stat) {
-                                  stat.forEach(function (report) {
-                                    if (!report.isRemote) {
-                                      if (report.type == 'outbound-rtp') {
-                                        fillStatObject(result.outboundStream, report);
-
-                                        if (report.mediaType == 'video') {
-                                          var vSettings = localVideo.srcObject.getVideoTracks()[0].getSettings();
-                                          result.outboundStream[report.mediaType].height = vSettings.height;
-                                          result.outboundStream[report.mediaType].width = vSettings.width;
-                                        }
-                                      } else if (report.type == 'inbound-rtp') {
-                                        fillStatObject(result.inboundStream, report);
-
-                                        if (report.mediaType == 'video' && remoteVideo != undefined) {
-                                          result.inboundStream[report.mediaType].height = remoteVideo.videoHeight;
-                                          result.inboundStream[report.mediaType].width = remoteVideo.videoWidth;
-                                        }
-                                      }
-                                    }
-                                  });
-                                }
-
-                                callbackFn(result);
-                              });
-                            }
-                          }
-                        };
-
-                        fullScreen = function fullScreen() {
-                          var video = document.getElementById(id);
-
-                          if (video) {
-                            if (!document.fullscreenElement && !document.mozFullScreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
-                              if (video.requestFullscreen) {
-                                video.requestFullscreen();
-                              } else if (video.msRequestFullscreen) {
-                                video.msRequestFullscreen();
-                              } else if (video.mozRequestFullScreen) {
-                                video.mozRequestFullScreen();
-                              } else if (video.webkitRequestFullscreen) {
-                                video.webkitRequestFullscreen();
-                              } else if (video.webkitEnterFullscreen) {
-                                video.webkitEnterFullscreen(); //hack for iOS safari. Video is getting paused when switching from fullscreen to normal mode.
-
-                                video.addEventListener("pause", function () {
-                                  video.play();
-                                });
-                              }
-                            } else {
-                              if (document.exitFullscreen) {
-                                document.exitFullscreen();
-                              } else if (document.msExitFullscreen) {
-                                document.msExitFullscreen();
-                              } else if (document.mozCancelFullScreen) {
-                                document.mozCancelFullScreen();
-                              } else if (document.webkitExitFullscreen) {
-                                document.webkitExitFullscreen();
-                              }
-                            }
-                          }
-                        };
-
-                        switchCam = function switchCam(deviceId) {
-                          return new Promise(function (resolve, reject) {
-                            if (localVideo && localVideo.srcObject && videoCams.length > 1 && !customStream && !screenShare) {
-                              connection.getSenders().forEach(function (sender) {
-                                if (sender.track.kind === 'audio') return;
-                                switchCamCount = (switchCamCount + 1) % videoCams.length;
-                                sender.track.stop();
-                                var cam = typeof deviceId !== "undefined" ? deviceId : videoCams[switchCamCount]; //use the settings that were set during connection initiation
-
-                                var clonedConstraints = Object.assign({}, constraints);
-                                clonedConstraints.video.deviceId = {
-                                  exact: cam
-                                };
-                                clonedConstraints.audio = false;
-                                navigator.mediaDevices.getUserMedia(clonedConstraints).then(function (newStream) {
-                                  var newVideoTrack = newStream.getVideoTracks()[0];
-                                  newVideoTrack.enabled = localVideo.srcObject.getVideoTracks()[0].enabled;
-                                  var audioTrack = localVideo.srcObject.getAudioTracks()[0];
-                                  sender.replaceTrack(newVideoTrack);
-                                  localVideo.srcObject = newStream; // On Safari mobile _newStream_ doesn't contain audio track, so we need to add track from previous stream
-
-                                  if (localVideo.srcObject.getAudioTracks().length == 0 && audioTrack) {
-                                    localVideo.srcObject.addTrack(audioTrack);
-                                  }
-
-                                  logger.info("Switch camera to " + cam);
-                                  resolve(cam);
-                                })["catch"](function (reason) {
-                                  logger.error(LOG_PREFIX, reason);
-                                  reject(reason);
-                                });
-                              });
-                            } else {
-                              reject(constants.ERROR_INFO.CAN_NOT_SWITCH_CAM);
-                            }
-                          });
-                        };
-
-                        switchMic = function switchMic(deviceId) {
-                          return new Promise(function (resolve, reject) {
-                            if (localVideo && localVideo.srcObject && mics.length > 1 && !customStream) {
-                              connection.getSenders().forEach(function (sender) {
-                                if (sender.track.kind === 'video') return;
-                                switchMicCount = (switchMicCount + 1) % mics.length;
-                                sender.track.stop();
-
-                                if (microphoneGain) {
-                                  microphoneGain.release();
-                                }
-
-                                var mic = typeof deviceId !== "undefined" ? deviceId : mics[switchMicCount]; //use the settings that were set during connection initiation
-
-                                var clonedConstraints = Object.assign({}, constraints);
-                                clonedConstraints.audio.deviceId = {
-                                  exact: mic
-                                };
-                                clonedConstraints.video = false;
-                                navigator.mediaDevices.getUserMedia(clonedConstraints).then(function (newStream) {
-                                  if (microphoneGain) {
-                                    var currentGain = microphoneGain.gain.value;
-                                    microphoneGain = createGainNode(newStream);
-                                    microphoneGain.gain.value = currentGain;
-                                  }
-
-                                  var newAudioTrack = newStream.getAudioTracks()[0];
-                                  newAudioTrack.enabled = localVideo.srcObject.getAudioTracks()[0].enabled;
-                                  currentAudioTrack = newAudioTrack;
-                                  var videoTrack = localVideo.srcObject.getVideoTracks()[0];
-
-                                  if (systemSoundTrack) {
-                                    var mixedTrack = mixAudioTracks(new MediaStream([newAudioTrack]), new MediaStream([systemSoundTrack]));
-                                    mixedTrack.enabled = newAudioTrack.enabled;
-                                    sender.replaceTrack(mixedTrack);
-                                    localVideo.srcObject = new MediaStream([mixedTrack]);
-                                  } else {
-                                    sender.replaceTrack(newAudioTrack);
-                                    localVideo.srcObject = newStream;
-                                  }
-
-                                  if (videoTrack) {
-                                    localVideo.srcObject.addTrack(videoTrack);
-                                  }
-
-                                  logger.info("Switch mic to " + mic);
-                                  resolve(mic);
-                                })["catch"](function (reason) {
-                                  logger.error(LOG_PREFIX, reason);
-                                  reject(reason);
-                                });
-                              });
-                            } else {
-                              reject(constants.ERROR_INFO.CAN_NOT_SWITCH_MIC);
-                            }
-                          });
-                        };
-
-                        switchToScreen = function switchToScreen(source, woExtension) {
-                          return new Promise(function (resolve, reject) {
-                            if (!screenShare) {
-                              var clonedConstraints = {
-                                video: Object.assign({}, constraints.video),
-                                audio: Object.assign({}, constraints.audio)
-                              };
-
-                              if (browserDetails.browser === 'firefox') {
-                                clonedConstraints.video.mediaSource = source;
-                              }
-
-                              if (window.chrome && woExtension) {
-                                getScreenDeviceIdWoExtension(clonedConstraints).then(function (screenSharingConstraints) {
-                                  navigator.mediaDevices.getDisplayMedia(screenSharingConstraints).then(function (stream) {
-                                    processScreenStream(stream, resolve);
-                                  })["catch"](reject);
-                                });
-                                return;
-                              }
-
-                              getScreenDeviceId(clonedConstraints).then(function (screenSharingConstraints) {
-                                clonedConstraints.sourceId = screenSharingConstraints.sourceId;
-
-                                if (screenSharingConstraints.audioMandatory) {
-                                  clonedConstraints.audio = {
-                                    mandatory: screenSharingConstraints.audioMandatory,
-                                    optional: []
-                                  };
-                                } else {
-                                  delete clonedConstraints.audio;
-                                }
-
-                                if (browserDetails.browser == "firefox") {
-                                  clonedConstraints.video = screenSharingConstraints;
-                                } else if (browserDetails.browser == "chrome") {
-                                  delete clonedConstraints.video;
-                                  clonedConstraints.video = {
-                                    mandatory: screenSharingConstraints.mandatory
-                                  };
-                                }
-
-                                navigator.mediaDevices.getUserMedia(clonedConstraints).then(function (stream) {
-                                  processScreenStream(stream, resolve);
-                                })["catch"](function (reason) {
-                                  logger.error(reason);
-                                  reject(reason);
-                                });
-                              })["catch"](function (reason) {
-                                logger.error(reason);
-                                reject(reason);
-                              });
-                            }
-                          });
-                        };
-
-                        processScreenStream = function processScreenStream(stream, resolve) {
-                          connection.getSenders().forEach(function (sender) {
-                            if (sender.track.kind === 'audio') return;
-                            currentAudioTrack = localVideo.srcObject.getAudioTracks()[0];
-                            currentVideoTrack = localVideo.srcObject.getVideoTracks()[0];
-                            var newVideoTrack = stream.getVideoTracks()[0];
-                            newVideoTrack.enabled = currentVideoTrack.enabled;
-                            sender.replaceTrack(newVideoTrack);
-                            localVideo.srcObject = stream;
-
-                            if (stream.getAudioTracks()[0]) {
-                              systemSoundTrack = stream.getAudioTracks()[0];
-                              connection.getSenders().forEach(function (sender) {
-                                if (sender.track.kind === 'video') return;
-                                var mixedTrack = mixAudioTracks(stream, new MediaStream([sender.track]));
-                                mixedTrack.enabled = currentAudioTrack.enabled;
-                                sender.replaceTrack(mixedTrack);
-                                localVideo.srcObject.removeTrack(stream.getAudioTracks()[0]);
-                                localVideo.srcObject.addTrack(mixedTrack);
-                                currentAudioTrack.enabled = true;
-                              });
-                            } else {
-                              localVideo.srcObject.addTrack(currentAudioTrack);
-                            }
-                          });
-                          logger.info("Switch to screen");
-                          screenShare = true;
-                          resolve();
-                        };
-
-                        switchToCam = function switchToCam() {
-                          if (screenShare) {
-                            connection.getSenders().forEach(function (sender) {
-                              if (sender.track.kind === 'audio') return;
-                              currentVideoTrack.enabled = sender.track.enabled;
-                              sender.track.stop();
-                              localVideo.srcObject = new MediaStream([currentVideoTrack]);
-                              sender.replaceTrack(currentVideoTrack);
-
-                              if (currentAudioTrack) {
-                                connection.getSenders().forEach(function (sender) {
-                                  if (sender.track.kind === 'video') return;
-
-                                  if (systemSoundTrack) {
-                                    currentAudioTrack.enabled = sender.track.enabled;
-                                    sender.track.stop();
-                                    systemSoundTrack.stop();
-                                    systemSoundTrack = null;
-                                    sender.replaceTrack(currentAudioTrack);
-                                  }
-
-                                  localVideo.srcObject.addTrack(currentAudioTrack);
-                                });
-                              }
-                            });
-                          }
-
-                          logger.info("Switch to cam");
-                          screenShare = false;
-                        };
-
-                        exports = {};
-                        exports.state = state;
-                        exports.createOffer = createOffer;
-                        exports.createAnswer = createAnswer;
-                        exports.setRemoteSdp = setRemoteSdp;
-                        exports.changeAudioCodec = changeAudioCodec;
-                        exports.close = close;
-                        exports.setAudioOutputId = setAudioOutputId;
-                        exports.setVolume = setVolume;
-                        exports.unmuteRemoteAudio = unmuteRemoteAudio;
-                        exports.muteRemoteAudio = muteRemoteAudio;
-                        exports.isRemoteAudioMuted = isRemoteAudioMuted;
-                        exports.setMicrophoneGain = setMicrophoneGain;
-                        exports.getVolume = getVolume;
-                        exports.muteAudio = muteAudio;
-                        exports.unmuteAudio = unmuteAudio;
-                        exports.isAudioMuted = isAudioMuted;
-                        exports.muteVideo = muteVideo;
-                        exports.unmuteVideo = unmuteVideo;
-                        exports.isVideoMuted = isVideoMuted;
-                        exports.getStats = getStat;
-                        exports.fullScreen = fullScreen;
-                        exports.switchCam = switchCam;
-                        exports.switchMic = switchMic;
-                        exports.switchToScreen = switchToScreen;
-                        exports.switchToCam = switchToCam;
-                        connections[id] = exports;
-                        resolve(exports);
-
-                      case 82:
-                      case "end":
-                        return _context.stop();
+    };
+
+    connection.onsignalingstatechange = function (event) {};
+
+    connection.oniceconnectionstatechange = function (event) {};
+
+    connection.onicecandidate = function (event) {
+      if (event.candidate != null) {
+        logger.debug(LOG_PREFIX, "Added icecandidate: " + event.candidate.candidate);
+      }
+    };
+
+    var state = function state() {
+      return connection.signalingState;
+    };
+
+    var close = function close(cacheCamera) {
+      if (remoteVideo) {
+        removeVideoElement(remoteVideo); //tweak for custom video players #WCS-1511
+
+        if (!options.remoteVideo) {
+          remoteVideo.id = remoteVideo.id + REMOTE_CACHED_VIDEO;
+        }
+
+        remoteVideo = null;
+      }
+
+      if (localVideo && !getCacheInstance(localDisplay || display) && cacheCamera) {
+        localVideo.id = localVideo.id + LOCAL_CACHED_VIDEO;
+        unmuteAudio();
+        unmuteVideo();
+        localVideo = null;
+      } else if (localVideo) {
+        localVideo.id = localVideo.id + LOCAL_CACHED_VIDEO;
+        removeVideoElement(localVideo);
+        localVideo = null;
+      }
+
+      if (connection.signalingState !== "closed") {
+        connection.close();
+      }
+
+      delete connections[id];
+    };
+
+    var createOffer = function createOffer(options) {
+      return new Promise(function (resolve, reject) {
+        var hasAudio = true;
+        var hasVideo = true;
+
+        if (localVideo) {
+          if (!localVideo.srcObject.getAudioTracks()[0]) {
+            hasAudio = false;
+          }
+
+          if (!localVideo.srcObject.getVideoTracks()[0]) {
+            hasVideo = false;
+            options.receiveVideo = false;
+          }
+        } else if (browserDetails.browser == "safari" && !connection.getTransceivers().length) {
+          if (options.receiveAudio) {
+            connection.addTransceiver('audio', {
+              direction: "recvonly"
+            });
+          }
+
+          if (options.receiveVideo) {
+            connection.addTransceiver('video', {
+              direction: "recvonly"
+            });
+          }
+        }
+
+        var constraints = {
+          offerToReceiveAudio: options.receiveAudio ? 1 : 0,
+          offerToReceiveVideo: options.receiveVideo ? 1 : 0
+        }; //create offer and set local sdp
+
+        connection.createOffer(constraints).then(function (offer) {
+          connection.setLocalDescription(offer).then(function () {
+            var o = {};
+            o.sdp = util.stripCodecs(offer.sdp, options.stripCodecs);
+            o.hasAudio = hasAudio;
+            o.hasVideo = hasVideo;
+            resolve(o);
+          });
+        });
+      });
+    };
+
+    var createAnswer = function createAnswer(options) {
+      return new Promise(function (resolve, reject) {
+        //create offer and set local sdp
+        connection.createAnswer().then(function (answer) {
+          connection.setLocalDescription(answer).then(function () {
+            resolve(util.stripCodecs(answer.sdp, options.stripCodecs));
+          });
+        });
+      });
+    };
+
+    var changeAudioCodec = function changeAudioCodec(codec) {
+      return false;
+    };
+
+    var setRemoteSdp = function setRemoteSdp(sdp) {
+      logger.debug(LOG_PREFIX, "setRemoteSDP:");
+      logger.debug(LOG_PREFIX, sdp);
+      return new Promise(function (resolve, reject) {
+        var sdpType;
+
+        if (connection.signalingState == 'have-local-offer') {
+          sdpType = 'answer';
+        } else {
+          sdpType = 'offer';
+        }
+
+        var rtcSdp = new RTCSessionDescription({
+          type: sdpType,
+          sdp: sdp
+        });
+        connection.setRemoteDescription(rtcSdp).then(function () {
+          //use in edge for ice
+          if (browserDetails.browser == "edge") {// var sdpArray = sdp.split("\n");
+            // var i;
+            // for (i = 0; i < sdpArray.length; i++) {
+            //     if (sdpArray[i].indexOf("m=video") == 0) {
+            //         break;
+            //     }
+            //     if (sdpArray[i].indexOf("a=candidate:1 1") == 0 || sdpArray[i].indexOf("a=candidate:2 1") == 0) {
+            //         var rtcIceCandidate = new RTCIceCandidate({
+            //             candidate: sdpArray[i],
+            //             sdpMid: "audio",
+            //             sdpMLineIndex: 0
+            //         });
+            //         connection.addIceCandidate(rtcIceCandidate);
+            //     }
+            // }
+            // var video = false;
+            // for (i = 0; i < sdpArray.length; i++) {
+            //     if (sdpArray[i].indexOf("m=video") == 0) {
+            //         video = true;
+            //     }
+            //     if (video && (sdpArray[i].indexOf("a=candidate:1 1") == 0 || sdpArray[i].indexOf("a=candidate:2 1") == 0)) {
+            //         var rtcIceCandidate2 = new RTCIceCandidate({
+            //             candidate: sdpArray[i],
+            //             sdpMid: "video",
+            //             sdpMLineIndex: 1
+            //         });
+            //         connection.addIceCandidate(rtcIceCandidate2);
+            //     }
+            // }
+            // WCS-2204. fixed InvalidStateError
+            // connection.addIceCandidate(null);
+          }
+
+          resolve();
+        })["catch"](function (error) {
+          reject(error);
+        });
+      });
+    };
+
+    var setAudioOutputId = function setAudioOutputId(id) {
+      if (remoteVideo) {
+        //WCS-2063. fixed output device switch
+        if (browserDetails.browser == "edge") {
+          var srcObject = remoteVideo.srcObject;
+          remoteVideo.srcObject = null;
+          var res = remoteVideo.setSinkId(id);
+          remoteVideo.srcObject = srcObject;
+          return res;
+        }
+
+        return remoteVideo.setSinkId(id);
+      }
+    };
+
+    var getVolume = function getVolume() {
+      if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getAudioTracks().length > 0) {
+        //return remoteVideo.srcObject.getAudioTracks()[0].volume * 100;
+        return remoteVideo.volume * 100;
+      }
+
+      return -1;
+    };
+
+    var setVolume = function setVolume(volume) {
+      if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getAudioTracks().length > 0) {
+        remoteVideo.volume = volume / 100;
+      }
+    };
+
+    var unmuteRemoteAudio = function unmuteRemoteAudio() {
+      if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getAudioTracks().length > 0) {
+        remoteVideo.muted = false;
+      }
+    };
+
+    var muteRemoteAudio = function muteRemoteAudio() {
+      if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getAudioTracks().length > 0) {
+        remoteVideo.muted = true;
+      }
+    };
+
+    var isRemoteAudioMuted = function isRemoteAudioMuted() {
+      if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getAudioTracks().length > 0) {
+        return remoteVideo.muted;
+      }
+
+      return true;
+    };
+
+    var setMicrophoneGain = function setMicrophoneGain(volume) {
+      if (microphoneGain) {
+        microphoneGain.gain.value = volume / 100;
+      }
+    };
+
+    var muteAudio = function muteAudio() {
+      if (localVideo && localVideo.srcObject && localVideo.srcObject.getAudioTracks().length > 0) {
+        localVideo.srcObject.getAudioTracks()[0].enabled = false;
+      }
+    };
+
+    var unmuteAudio = function unmuteAudio() {
+      if (localVideo && localVideo.srcObject && localVideo.srcObject.getAudioTracks().length > 0) {
+        localVideo.srcObject.getAudioTracks()[0].enabled = true;
+      }
+    };
+
+    var isAudioMuted = function isAudioMuted() {
+      if (localVideo && localVideo.srcObject && localVideo.srcObject.getAudioTracks().length > 0) {
+        return !localVideo.srcObject.getAudioTracks()[0].enabled;
+      }
+
+      return true;
+    };
+
+    var muteVideo = function muteVideo() {
+      if (localVideo && localVideo.srcObject && localVideo.srcObject.getVideoTracks().length > 0) {
+        localVideo.srcObject.getVideoTracks()[0].enabled = false;
+      }
+    };
+
+    var unmuteVideo = function unmuteVideo() {
+      if (localVideo && localVideo.srcObject && localVideo.srcObject.getVideoTracks().length > 0) {
+        localVideo.srcObject.getVideoTracks()[0].enabled = true;
+      }
+    };
+
+    var isVideoMuted = function isVideoMuted() {
+      if (localVideo && localVideo.srcObject && localVideo.srcObject.getVideoTracks().length > 0) {
+        return !localVideo.srcObject.getVideoTracks()[0].enabled;
+      }
+
+      return true;
+    };
+
+    var getStat = function getStat(callbackFn, nativeStats) {
+      var browser = browserDetails.browser;
+      var result = {
+        outboundStream: {},
+        inboundStream: {},
+        otherStats: []
+      };
+
+      if (connection && validBrowsers.includes(browser)) {
+        if (nativeStats) {
+          return connection.getStats(null);
+        } else {
+          connection.getStats(null).then(function (stat) {
+            if (stat) {
+              stat.forEach(function (report) {
+                if (!report.isRemote) {
+                  if (report.type == 'outbound-rtp') {
+                    fillStatObject(result.outboundStream, report);
+
+                    if (report.mediaType == 'video') {
+                      var vSettings = localVideo.srcObject.getVideoTracks()[0].getSettings();
+                      result.outboundStream[report.mediaType].height = vSettings.height;
+                      result.outboundStream[report.mediaType].width = vSettings.width;
+                    }
+                  } else if (report.type == 'inbound-rtp') {
+                    fillStatObject(result.inboundStream, report);
+
+                    if (report.mediaType == 'video' && remoteVideo != undefined) {
+                      result.inboundStream[report.mediaType].height = remoteVideo.videoHeight;
+                      result.inboundStream[report.mediaType].width = remoteVideo.videoWidth;
                     }
                   }
-                }, _callee);
-              }));
+                }
+              });
+            }
 
-              return function (_x2, _x3) {
-                return _ref2.apply(this, arguments);
-              };
-            }()));
-
-          case 1:
-          case "end":
-            return _context2.stop();
+            callbackFn(result);
+          });
         }
       }
-    }, _callee2);
-  }));
+    };
 
-  return function createConnection(_x) {
-    return _ref.apply(this, arguments);
-  };
-}();
+    function fillStatObject(obj, report) {
+      var mediaType = report.mediaType;
+      obj[mediaType] = {}; //WCS-1922, currentRemoteDescription - browser compatibilitySection: Chrome 70, FF 57, Safari 11
+
+      var description = connection.currentRemoteDescription != undefined ? connection.currentRemoteDescription : connection.remoteDescription;
+      var codec = util.getCurrentCodecAndSampleRate(description.sdp, mediaType);
+      obj[mediaType]["codec"] = codec.name;
+      obj[mediaType]["codecRate"] = codec.sampleRate;
+      Object.keys(report).forEach(function (key) {
+        if (key.startsWith("bytes") || key.startsWith("packets") || key.indexOf("Count") != -1) {
+          obj[mediaType][key] = report[key];
+        }
+      });
+    }
+
+    var fullScreen = function fullScreen() {
+      var video = document.getElementById(id);
+
+      if (video) {
+        if (!document.fullscreenElement && !document.mozFullScreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
+          if (video.requestFullscreen) {
+            video.requestFullscreen();
+          } else if (video.msRequestFullscreen) {
+            video.msRequestFullscreen();
+          } else if (video.mozRequestFullScreen) {
+            video.mozRequestFullScreen();
+          } else if (video.webkitRequestFullscreen) {
+            video.webkitRequestFullscreen();
+          } else if (video.webkitEnterFullscreen) {
+            video.webkitEnterFullscreen(); //hack for iOS safari. Video is getting paused when switching from fullscreen to normal mode.
+
+            video.addEventListener("pause", function () {
+              video.play();
+            });
+          }
+        } else {
+          if (document.exitFullscreen) {
+            document.exitFullscreen();
+          } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+          } else if (document.mozCancelFullScreen) {
+            document.mozCancelFullScreen();
+          } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+          }
+        }
+      }
+    };
+
+    var switchCam = function switchCam(deviceId) {
+      return new Promise(function (resolve, reject) {
+        if (localVideo && localVideo.srcObject && videoCams.length > 1 && !customStream && !screenShare) {
+          connection.getSenders().forEach(function (sender) {
+            if (sender.track.kind === 'audio') return;
+            switchCamCount = (switchCamCount + 1) % videoCams.length;
+            sender.track.stop();
+            var cam = typeof deviceId !== "undefined" ? deviceId : videoCams[switchCamCount]; //use the settings that were set during connection initiation
+
+            var clonedConstraints = Object.assign({}, constraints);
+            clonedConstraints.video.deviceId = {
+              exact: cam
+            };
+            clonedConstraints.audio = false;
+            navigator.mediaDevices.getUserMedia(clonedConstraints).then(function (newStream) {
+              var newVideoTrack = newStream.getVideoTracks()[0];
+              newVideoTrack.enabled = localVideo.srcObject.getVideoTracks()[0].enabled;
+              var audioTrack = localVideo.srcObject.getAudioTracks()[0];
+              sender.replaceTrack(newVideoTrack);
+              localVideo.srcObject = newStream; // On Safari mobile _newStream_ doesn't contain audio track, so we need to add track from previous stream
+
+              if (localVideo.srcObject.getAudioTracks().length == 0 && audioTrack) {
+                localVideo.srcObject.addTrack(audioTrack);
+              }
+
+              logger.info("Switch camera to " + cam);
+              resolve(cam);
+            })["catch"](function (reason) {
+              logger.error(LOG_PREFIX, reason);
+              reject(reason);
+            });
+          });
+        } else {
+          reject(constants.ERROR_INFO.CAN_NOT_SWITCH_CAM);
+        }
+      });
+    };
+
+    var switchMic = function switchMic(deviceId) {
+      return new Promise(function (resolve, reject) {
+        if (localVideo && localVideo.srcObject && mics.length > 1 && !customStream) {
+          connection.getSenders().forEach(function (sender) {
+            if (sender.track.kind === 'video') return;
+            switchMicCount = (switchMicCount + 1) % mics.length;
+            sender.track.stop();
+
+            if (microphoneGain) {
+              microphoneGain.release();
+            }
+
+            var mic = typeof deviceId !== "undefined" ? deviceId : mics[switchMicCount]; //use the settings that were set during connection initiation
+
+            var clonedConstraints = Object.assign({}, constraints);
+            clonedConstraints.audio.deviceId = {
+              exact: mic
+            };
+            clonedConstraints.video = false;
+            navigator.mediaDevices.getUserMedia(clonedConstraints).then(function (newStream) {
+              if (microphoneGain) {
+                var currentGain = microphoneGain.gain.value;
+                microphoneGain = createGainNode(newStream);
+                microphoneGain.gain.value = currentGain;
+              }
+
+              var newAudioTrack = newStream.getAudioTracks()[0];
+              newAudioTrack.enabled = localVideo.srcObject.getAudioTracks()[0].enabled;
+              currentAudioTrack = newAudioTrack;
+              var videoTrack = localVideo.srcObject.getVideoTracks()[0];
+
+              if (systemSoundTrack) {
+                var mixedTrack = mixAudioTracks(new MediaStream([newAudioTrack]), new MediaStream([systemSoundTrack]));
+                mixedTrack.enabled = newAudioTrack.enabled;
+                sender.replaceTrack(mixedTrack);
+                localVideo.srcObject = new MediaStream([mixedTrack]);
+              } else {
+                sender.replaceTrack(newAudioTrack);
+                localVideo.srcObject = newStream;
+              }
+
+              if (videoTrack) {
+                localVideo.srcObject.addTrack(videoTrack);
+              }
+
+              logger.info("Switch mic to " + mic);
+              resolve(mic);
+            })["catch"](function (reason) {
+              logger.error(LOG_PREFIX, reason);
+              reject(reason);
+            });
+          });
+        } else {
+          reject(constants.ERROR_INFO.CAN_NOT_SWITCH_MIC);
+        }
+      });
+    };
+
+    var switchToScreen = function switchToScreen(source, woExtension) {
+      return new Promise(function (resolve, reject) {
+        if (!screenShare) {
+          var clonedConstraints = {
+            video: Object.assign({}, constraints.video),
+            audio: Object.assign({}, constraints.audio)
+          };
+
+          if (browserDetails.browser === 'firefox') {
+            clonedConstraints.video.mediaSource = source;
+          }
+
+          if (window.chrome && woExtension) {
+            getScreenDeviceIdWoExtension(clonedConstraints).then(function (screenSharingConstraints) {
+              navigator.mediaDevices.getDisplayMedia(screenSharingConstraints).then(function (stream) {
+                processScreenStream(stream, resolve);
+              })["catch"](reject);
+            });
+            return;
+          }
+
+          getScreenDeviceId(clonedConstraints).then(function (screenSharingConstraints) {
+            clonedConstraints.sourceId = screenSharingConstraints.sourceId;
+
+            if (screenSharingConstraints.audioMandatory) {
+              clonedConstraints.audio = {
+                mandatory: screenSharingConstraints.audioMandatory,
+                optional: []
+              };
+            } else {
+              delete clonedConstraints.audio;
+            }
+
+            if (browserDetails.browser == "firefox") {
+              clonedConstraints.video = screenSharingConstraints;
+            } else if (browserDetails.browser == "chrome") {
+              delete clonedConstraints.video;
+              clonedConstraints.video = {
+                mandatory: screenSharingConstraints.mandatory
+              };
+            }
+
+            navigator.mediaDevices.getUserMedia(clonedConstraints).then(function (stream) {
+              processScreenStream(stream, resolve);
+            })["catch"](function (reason) {
+              logger.error(reason);
+              reject(reason);
+            });
+          })["catch"](function (reason) {
+            logger.error(reason);
+            reject(reason);
+          });
+        }
+      });
+    };
+
+    var processScreenStream = function processScreenStream(stream, resolve) {
+      connection.getSenders().forEach(function (sender) {
+        if (sender.track.kind === 'audio') return;
+        currentAudioTrack = localVideo.srcObject.getAudioTracks()[0];
+        currentVideoTrack = localVideo.srcObject.getVideoTracks()[0];
+        var newVideoTrack = stream.getVideoTracks()[0];
+        newVideoTrack.enabled = currentVideoTrack.enabled;
+        sender.replaceTrack(newVideoTrack);
+        localVideo.srcObject = stream;
+
+        if (stream.getAudioTracks()[0]) {
+          systemSoundTrack = stream.getAudioTracks()[0];
+          connection.getSenders().forEach(function (sender) {
+            if (sender.track.kind === 'video') return;
+            var mixedTrack = mixAudioTracks(stream, new MediaStream([sender.track]));
+            mixedTrack.enabled = currentAudioTrack.enabled;
+            sender.replaceTrack(mixedTrack);
+            localVideo.srcObject.removeTrack(stream.getAudioTracks()[0]);
+            localVideo.srcObject.addTrack(mixedTrack);
+            currentAudioTrack.enabled = true;
+          });
+        } else {
+          localVideo.srcObject.addTrack(currentAudioTrack);
+        }
+      });
+      logger.info("Switch to screen");
+      screenShare = true;
+      resolve();
+    };
+
+    var switchToCam = function switchToCam() {
+      if (screenShare) {
+        connection.getSenders().forEach(function (sender) {
+          if (sender.track.kind === 'audio') return;
+          currentVideoTrack.enabled = sender.track.enabled;
+          sender.track.stop();
+          localVideo.srcObject = new MediaStream([currentVideoTrack]);
+          sender.replaceTrack(currentVideoTrack);
+
+          if (currentAudioTrack) {
+            connection.getSenders().forEach(function (sender) {
+              if (sender.track.kind === 'video') return;
+
+              if (systemSoundTrack) {
+                currentAudioTrack.enabled = sender.track.enabled;
+                sender.track.stop();
+                systemSoundTrack.stop();
+                systemSoundTrack = null;
+                sender.replaceTrack(currentAudioTrack);
+              }
+
+              localVideo.srcObject.addTrack(currentAudioTrack);
+            });
+          }
+        });
+      }
+
+      logger.info("Switch to cam");
+      screenShare = false;
+    };
+
+    var exports = {};
+    exports.state = state;
+    exports.createOffer = createOffer;
+    exports.createAnswer = createAnswer;
+    exports.setRemoteSdp = setRemoteSdp;
+    exports.changeAudioCodec = changeAudioCodec;
+    exports.close = close;
+    exports.setAudioOutputId = setAudioOutputId;
+    exports.setVolume = setVolume;
+    exports.unmuteRemoteAudio = unmuteRemoteAudio;
+    exports.muteRemoteAudio = muteRemoteAudio;
+    exports.isRemoteAudioMuted = isRemoteAudioMuted;
+    exports.setMicrophoneGain = setMicrophoneGain;
+    exports.getVolume = getVolume;
+    exports.muteAudio = muteAudio;
+    exports.unmuteAudio = unmuteAudio;
+    exports.isAudioMuted = isAudioMuted;
+    exports.muteVideo = muteVideo;
+    exports.unmuteVideo = unmuteVideo;
+    exports.isVideoMuted = isVideoMuted;
+    exports.getStats = getStat;
+    exports.fullScreen = fullScreen;
+    exports.switchCam = switchCam;
+    exports.switchMic = switchMic;
+    exports.switchToScreen = switchToScreen;
+    exports.switchToCam = switchToCam;
+    connections[id] = exports;
+    resolve(exports);
+  });
+};
 
 var mixAudioTracks = function mixAudioTracks(stream1, stream2) {
   var stream1Sound = audioContext.createMediaStreamSource(stream1);
@@ -13803,115 +13639,7 @@ var getMediaAccess = function getMediaAccess(constraints, display, disableConstr
   });
 };
 
-function writeCanvasString(str) {
-  var ctx = canvas.getContext('2d');
-  ctx.font = "64px serif";
-  ctx.fillText(str, 5, 100);
-  console.log(str);
-}
-
-function updateCanvas() {
-  getFrame();
-
-  if (contineuAnimation) {
-    animationId = window.requestAnimationFrame(updateCanvas);
-  }
-}
-
-function drawCanvas(srcElement) {
-  var opacity = 1.0;
-  var flipHorizontal = false; //const maskBlurAmount = 0;
-
-  var maskBlurAmount = 3; // Draw the mask image on top of the original image onto a canvas.
-  // The colored part image will be drawn semi-transparent, with an opacity of
-  // 0.7, allowing for the original image to be visible under.
-
-  bodyPix.drawMask(canvas, srcElement, bodyPixMaks, opacity, maskBlurAmount, flipHorizontal);
-}
-
-function updateSegment() {
-  var segmeteUpdateTime = 10; // ms
-
-  if (!bodyPixNet) {
-    console.warn('bodyPix net NOT READY');
-    return;
-  }
-
-  var option = {
-    flipHorizontal: false,
-    internalResolution: 'medium',
-    segmentationThreshold: 0.7,
-    maxDetections: 4,
-    scoreThreshold: 0.5,
-    nmsRadius: 20,
-    minKeypointScore: 0.3,
-    refineSteps: 10
-  };
-
-  if (maskType === 'none') {
-    bodyPixMaks = null;
-
-    if (contineuAnimation) {
-      segmentTimerId = setTimeout(updateSegment, segmeteUpdateTime);
-    }
-
-    return;
-  }
-
-  if (imgData !== undefined) {
-    bodyPixNet.segmentPerson(imgData, option).then(function (segmentation) {
-      if (maskType === 'room') {
-        var fgColor = {
-          r: 0,
-          g: 0,
-          b: 0,
-          a: 0
-        };
-        var bgColor = {
-          r: 127,
-          g: 127,
-          b: 127,
-          a: 255
-        };
-        var personPartImage = bodyPix.toMask(segmentation, fgColor, bgColor);
-        bodyPixMaks = personPartImage;
-      } else if (maskType === 'person') {
-        var _fgColor = {
-          r: 127,
-          g: 127,
-          b: 127,
-          a: 255
-        };
-        var _bgColor = {
-          r: 0,
-          g: 0,
-          b: 0,
-          a: 0
-        };
-        var roomPartImage = bodyPix.toMask(segmentation, _fgColor, _bgColor);
-        bodyPixMaks = roomPartImage;
-      } else {
-        bodyPixMaks = null;
-      }
-
-      if (contineuAnimation) {
-        segmentTimerId = setTimeout(updateSegment, segmeteUpdateTime);
-      }
-    })["catch"](function (err) {
-      console.error('segmentPerson ERROR:', err);
-    });
-  }
-}
-
 var loadVideo = function loadVideo(display, stream, screenShare, requestAudioConstraints, resolve, constraints) {
-  //From canvas stream
-  writeCanvasString('initalizing BodyPix');
-  contineuAnimation = true;
-  animationId = window.requestAnimationFrame(updateCanvas);
-  canvasStream = canvas.captureStream();
-  canvasStream.addTrack(localStream.getAudioTracks()[0]); //updateSegment();
-  //end
-
   var video = getCacheInstance(display);
 
   if (!video) {
@@ -13919,20 +13647,20 @@ var loadVideo = function loadVideo(display, stream, screenShare, requestAudioCon
     display.appendChild(video);
   }
 
-  if (createMicGainNode && canvasStream.getAudioTracks().length > 0 && browserDetails.browser == "chrome") {
+  if (createMicGainNode && stream.getAudioTracks().length > 0 && browserDetails.browser == "chrome") {
     //WCS-1696. We need to start audioContext to work with gain control
     audioContext.resume();
-    microphoneGain = createGainNode(canvasStream);
+    microphoneGain = createGainNode(stream);
   }
 
   video.id = uuid_v1() + LOCAL_CACHED_VIDEO;
-  video.srcObject = canvasStream; //mute audio
+  video.srcObject = stream; //mute audio
 
   video.muted = true;
 
   video.onloadedmetadata = function (e) {
     if (screenShare && !window.chrome) {
-      setScreenResolution(video, canvasStream, constraints);
+      setScreenResolution(video, stream, constraints);
     }
 
     video.play();

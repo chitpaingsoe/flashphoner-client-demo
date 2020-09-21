@@ -1,8 +1,8 @@
 var SESSION_STATUS = Flashphoner.constants.SESSION_STATUS;
 var STREAM_STATUS = Flashphoner.constants.STREAM_STATUS;
 var PRELOADER_URL = "../../dependencies/media/preloader.mp4";
-var localVideo;
-var remoteVideo;
+var localVideoRender;
+var remoteVideoRender;
 
 
 //////////////////////////////////
@@ -18,15 +18,19 @@ function init_page() {
     }
 
     //local and remote displays
-    localVideo = document.getElementById("localVideo");
-    remoteVideo = document.getElementById("remoteVideo");
+    localVideoRender = document.getElementById("localVideo");
+    remoteVideoRender = document.getElementById("remoteVideo");
 
-    $("#url").val(setURL() + "/" + createUUID(8));
+    let prefixURL="wss://192.168.1.169:8443";
+
+    $("#url").val(prefixURL + "/" + createUUID(8));
     //set initial button callback
     onStopped();
+
 }
 
 function onStarted(publishStream, previewStream) {
+    console.log("OnStred..........")
     $("#publishBtn").text("Stop").off('click').click(function(){
         $(this).prop('disabled', true);
         previewStream.stop();
@@ -40,8 +44,8 @@ function onStopped() {
 function publishBtnClick() {
     $(this).prop('disabled', true);
     if (Browser.isSafariWebRTC()) {
-        Flashphoner.playFirstVideo(localVideo, true, PRELOADER_URL).then(function() {
-            Flashphoner.playFirstVideo(remoteVideo, false, PRELOADER_URL).then(function() {
+        Flashphoner.playFirstVideo(localVideoRender, true, PRELOADER_URL).then(function() {
+            Flashphoner.playFirstVideo(remoteVideoRender, false, PRELOADER_URL).then(function() {
                 start();
             });
         });
@@ -51,6 +55,7 @@ function publishBtnClick() {
 }
 
 function start() {
+    startVideo();
     //check if we already have session
     if (Flashphoner.getSessions().length > 0) {
         startStreaming(Flashphoner.getSessions()[0]);
@@ -76,24 +81,35 @@ function start() {
 
 function startStreaming(session) {
     var streamName = field("url").split('/')[3];
+
+    var constraints = {
+        audio: false,
+        video: false,
+        customStream: canvas.captureStream()
+    };
+
     session.createStream({
         name: streamName,
-        display: localVideo,
+        display: localVideoRender,
+        constraints: constraints,
         cacheLocalResources: true,
         receiveVideo: false,
         receiveAudio: false
     }).on(STREAM_STATUS.PUBLISHING, function(publishStream){
         setStatus(STREAM_STATUS.PUBLISHING);
         //play preview
+        console.log("CP ",publishStream)
         session.createStream({
             name: streamName,
-            display: remoteVideo
+            display: remoteVideoRender
         }).on(STREAM_STATUS.PLAYING, function(previewStream){
             //enable stop button
             onStarted(publishStream, previewStream);
         }).on(STREAM_STATUS.STOPPED, function(){
+            console.log("Stopped..........................")
             publishStream.stop();
         }).on(STREAM_STATUS.FAILED, function(stream){
+            console.log("Filed..........................")
             //preview failed, stop publishStream
             if (publishStream.status() == STREAM_STATUS.PUBLISHING) {
                 setStatus(STREAM_STATUS.FAILED, stream);

@@ -13,7 +13,10 @@ function init_page() {
         $("#notifyFlash").text("Your browser doesn't support Flash or WebRTC technology needed for this example");
         return;
     }
-    $("#url").val(setURL());
+    //prefix test
+    let prefixURL = "wss://192.168.1.169:8443";
+    $("#url").val(prefixURL);
+    //$("#url").val(setURL());
     onLeft();
 }
 
@@ -42,6 +45,7 @@ function onLeft() {
     $("#joinBtn").text("Join").off('click').click(function(){
         if (validateForm()) {
             $(this).prop('disabled', true);
+            startVideo();
             muteConnectInputs();
             start();
         }
@@ -204,6 +208,7 @@ function onMediaPublished(stream) {
         stream.stop();
     }).prop('disabled', false);
     $("#localAudioToggle").text("Mute A").off('click').click(function(){
+        console.log("STrem: ",stream.isAudioMuted())
         if (stream.isAudioMuted()) {
             $(this).text("Mute A");
             stream.unmuteAudio();
@@ -234,16 +239,19 @@ function onMediaStopped(room) {
 
 //publish local video
 function publishLocalMedia(room) {
+    let localCanvas = document.getElementById("canvas");
     var constraints = {
         audio: true,
-        video: true
+        video: false,
+        customStream: localCanvas.captureStream()
     };
     var display = document.getElementById("localDisplay");
+    
 
     room.publish({
         display: display,
         constraints: constraints,
-        record: false,
+        cacheLocalResources: true,
         receiveVideo: false,
         receiveAudio: false
     }).on(STREAM_STATUS.FAILED, function (stream) {

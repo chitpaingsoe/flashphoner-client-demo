@@ -16,91 +16,17 @@ var microphoneGain;
 var constants = require('./constants');
 var validBrowsers = ["firefox", "chrome", "safari"];
 
-
-let canvas = document.getElementById('canvas');
-let localStream = null;
-let canvasStream = null;
-
-let bodyPixNet = null;
-let animationId = null;
-let contineuAnimation = false;
-let bodyPixMaks = null;
-let segmentTimerId = null;
-let isConnected = false;
-let maskType = 'room';
-let imageCapture;
-let imgData;
-let isUpdate = false;
-
-
-// ------- bodypix -------
-async function loadModel() {
-    const net = await bodyPix.load(/** optional arguments, see below **/);
-    bodyPixNet = net;
-    console.log('bodyPix ready');
-}
-async function loadDevices(){
-     //preview
-     console.log("Load Devices")
-     const mediaConstraints = { video: { width: 640, height: 480 }, audio: true };
-
-
-     localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints).catch(err => {
-         console.error('media ERROR:', err);
-         return;
-     });
- 
-
-     let mediaStreamTrack = localStream.getVideoTracks()[0];
-	imageCapture = new ImageCapture(mediaStreamTrack);
-
-}
-loadModel()
-loadDevices();
-
-async function getFrame() {
-
-    await imageCapture.grabFrame()
-    .then((blob) => {
-        let w = blob.width;
-		let h = blob.height;
-		
-		let canvas2 = document.createElement("canvas");
-		canvas2.width = w;
-		canvas2.height = h;
-		 let ctx = canvas2.getContext("2d");
-		 ctx.drawImage(blob, 0, 0,w,h);
-        
-        
-        imgData = canvas2;
-
-        drawCanvas(canvas2);
-
-        if(isUpdate === false){
-            updateSegment();
-            isUpdate = true;
-        }
-        return;
-    }).catch(e => {
-       //console.log('Error at getFrame ',e);
-    });
-
-}
-var createConnection = async function (options) {
-    
-    return new Promise(async function (resolve, reject) {  
-
+var createConnection = function (options) {
+    return new Promise(function (resolve, reject) {
 
         var id = options.id;
-        var connectionConfig = options.connectionConfig || { "iceServers": [] };
+        var connectionConfig = options.connectionConfig || {"iceServers": []};
         var connectionConstraints = options.connectionConstraints || {};
         if (!connectionConstraints.hasOwnProperty("optional")) {
-            connectionConstraints.optional = [{ "DtlsSrtpKeyAgreement": true }];
+            connectionConstraints.optional = [{"DtlsSrtpKeyAgreement": true}];
         }
         connectionConfig.bundlePolicy = "max-compat";
         var connection = new RTCPeerConnection(connectionConfig, connectionConstraints);
-        //background blur
-        maskType = options.mask || "room";
         //unidirectional display
         var display = options.display;
         //bidirectional local
@@ -125,7 +51,6 @@ var createConnection = async function (options) {
 
         if (bidirectional) {
             localVideo = getCacheInstance(localDisplay);
-            
             if (localVideo) {
                 //made for safari, if sip call without audio and video, because function playFirstVideo() creates a video element
                 if (localVideo.srcObject) {
@@ -153,11 +78,11 @@ var createConnection = async function (options) {
         } else {
             //tweak for custom video players. In order to put MediaStream in srcObject #WCS-1511
             if (!remoteVideo) {
-                var cachedVideo = getCacheInstance(display);                
-                if (!cachedVideo || cachedVideo.id.indexOf(REMOTE_CACHED_VIDEO) !== -1 || !cachedVideo.srcObject) {                    
-                    if (cachedVideo) {                        
+                var cachedVideo = getCacheInstance(display);
+                if (!cachedVideo || cachedVideo.id.indexOf(REMOTE_CACHED_VIDEO) !== -1 || !cachedVideo.srcObject) {
+                    if (cachedVideo) {
                         remoteVideo = cachedVideo;
-                    } else {                       
+                    } else {
                         remoteVideo = document.createElement('video');
                         display.appendChild(remoteVideo);
                     }
@@ -170,7 +95,7 @@ var createConnection = async function (options) {
                      * https://bugs.chromium.org/p/chromium/issues/detail?id=769622
                      */
                     remoteVideo.style = "border-radius: 1px";
-                } else {                   
+                } else {
                     localVideo = cachedVideo;
                     localVideo.id = id;
                     connection.addStream(localVideo.srcObject);
@@ -207,7 +132,7 @@ var createConnection = async function (options) {
                 remoteVideo.onloadedmetadata = function (e) {
                     if (remoteVideo) {
                         remoteVideo.play().catch(function (e) {
-                            if (browserDetails.browser == 'chrome' || browserDetails.browser == 'safari') {
+                            if (validBrowsers.includes(browserDetails.browser)) {
                                 //WCS-1698. fixed autoplay in chromium based browsers
                                 //WCS-2375. fixed autoplay in ios safari
                                 logger.info(LOG_PREFIX, "Autoplay detected! Trying to play a video with a muted sound...");
@@ -284,10 +209,10 @@ var createConnection = async function (options) {
                     }
                 } else if (browserDetails.browser == "safari" && !connection.getTransceivers().length) {
                     if (options.receiveAudio) {
-                        connection.addTransceiver('audio', { direction: "recvonly" });
+                        connection.addTransceiver('audio', {direction: "recvonly"});
                     }
                     if (options.receiveVideo) {
-                        connection.addTransceiver('video', { direction: "recvonly" });
+                        connection.addTransceiver('video', {direction: "recvonly"});
                     }
                 }
                 var constraints = {
@@ -464,7 +389,7 @@ var createConnection = async function (options) {
         };
         var getStat = function (callbackFn, nativeStats) {
             var browser = browserDetails.browser;
-            var result = { outboundStream: {}, inboundStream: {}, otherStats: [] };
+            var result = {outboundStream: {}, inboundStream: {}, otherStats: []};
             if (connection && validBrowsers.includes(browser)) {
                 if (nativeStats) {
                     return connection.getStats(null);
@@ -556,7 +481,7 @@ var createConnection = async function (options) {
                         var cam = (typeof deviceId !== "undefined") ? deviceId : videoCams[switchCamCount];
                         //use the settings that were set during connection initiation
                         var clonedConstraints = Object.assign({}, constraints);
-                        clonedConstraints.video.deviceId = { exact: cam };
+                        clonedConstraints.video.deviceId = {exact: cam};
                         clonedConstraints.audio = false;
                         navigator.mediaDevices.getUserMedia(clonedConstraints).then(function (newStream) {
                             var newVideoTrack = newStream.getVideoTracks()[0];
@@ -595,7 +520,7 @@ var createConnection = async function (options) {
                         var mic = (typeof deviceId !== "undefined") ? deviceId : mics[switchMicCount];
                         //use the settings that were set during connection initiation
                         var clonedConstraints = Object.assign({}, constraints);
-                        clonedConstraints.audio.deviceId = { exact: mic };
+                        clonedConstraints.audio.deviceId = {exact: mic};
                         clonedConstraints.video = false;
                         navigator.mediaDevices.getUserMedia(clonedConstraints).then(function (newStream) {
                             if (microphoneGain) {
@@ -888,118 +813,25 @@ var getMediaAccess = function (constraints, display, disableConstraintsNormaliza
         }
     });
 };
-function writeCanvasString(str) {
-    const ctx = canvas.getContext('2d');
-    ctx.font = "64px serif";
-    ctx.fillText(str, 5, 100);
-    console.log(str);
-  }
-  function updateCanvas() {
-   getFrame();
-    if (contineuAnimation) {
-      animationId = window.requestAnimationFrame(updateCanvas);
-    }
-  }
-
-  function drawCanvas(srcElement) {
-    const opacity = 1.0;
-    const flipHorizontal = false;
-    //const maskBlurAmount = 0;
-    const maskBlurAmount = 3;
-
-    // Draw the mask image on top of the original image onto a canvas.
-    // The colored part image will be drawn semi-transparent, with an opacity of
-    // 0.7, allowing for the original image to be visible under.
-    bodyPix.drawMask(
-      canvas, srcElement, bodyPixMaks, opacity, maskBlurAmount,
-      flipHorizontal
-    );
-  }
-
-  function updateSegment() {
-    const segmeteUpdateTime = 10; // ms
-    if (!bodyPixNet) {
-      console.warn('bodyPix net NOT READY');
-      return;
-    }
-
-    const option = {
-      flipHorizontal: false,
-      internalResolution: 'medium',
-      segmentationThreshold: 0.7,
-      maxDetections: 4,
-      scoreThreshold: 0.5,
-      nmsRadius: 20,
-      minKeypointScore: 0.3,
-      refineSteps: 10
-    };
-
-    if (maskType === 'none') {
-      bodyPixMaks = null;
-      if (contineuAnimation) {
-        segmentTimerId = setTimeout(updateSegment, segmeteUpdateTime);
-      }
-      return;
-    }
-
-    if(imgData !== undefined){
-        bodyPixNet.segmentPerson(imgData, option)
-      .then(segmentation => {
-        if (maskType === 'room') {
-          const fgColor = { r: 0, g: 0, b: 0, a: 0 };
-          const bgColor = { r: 127, g: 127, b: 127, a: 255 };
-          const personPartImage = bodyPix.toMask(segmentation, fgColor, bgColor);
-          bodyPixMaks = personPartImage;
-        }
-        else if (maskType === 'person') {
-          const fgColor = { r: 127, g: 127, b: 127, a: 255 };
-          const bgColor = { r: 0, g: 0, b: 0, a: 0 };
-          const roomPartImage = bodyPix.toMask(segmentation, fgColor, bgColor);
-          bodyPixMaks = roomPartImage;
-        }
-        else {
-          bodyPixMaks = null;
-        }
-
-        if (contineuAnimation) {
-          segmentTimerId = setTimeout(updateSegment, segmeteUpdateTime);
-        }
-      })
-      .catch(err => {
-        console.error('segmentPerson ERROR:', err);
-      })
-    }
-  }
 
 var loadVideo = function (display, stream, screenShare, requestAudioConstraints, resolve, constraints) {
-    //From canvas stream
-      writeCanvasString('initalizing BodyPix');
-      contineuAnimation = true;
-      animationId = window.requestAnimationFrame(updateCanvas);
-      canvasStream = canvas.captureStream();
-      canvasStream.addTrack(localStream.getAudioTracks()[0])
-      //updateSegment();
-      //end
-
-    
     var video = getCacheInstance(display);
     if (!video) {
         video = document.createElement('video');
         display.appendChild(video);
     }
-    if (createMicGainNode && canvasStream.getAudioTracks().length > 0 && browserDetails.browser == "chrome") {
+    if (createMicGainNode && stream.getAudioTracks().length > 0 && browserDetails.browser == "chrome") {
         //WCS-1696. We need to start audioContext to work with gain control
         audioContext.resume();
-        microphoneGain = createGainNode(canvasStream);
+        microphoneGain = createGainNode(stream);
     }
     video.id = uuid_v1() + LOCAL_CACHED_VIDEO;
-    video.srcObject = canvasStream;
-
+    video.srcObject = stream;
     //mute audio
     video.muted = true;
     video.onloadedmetadata = function (e) {
         if (screenShare && !window.chrome) {
-            setScreenResolution(video, canvasStream, constraints);
+            setScreenResolution(video, stream, constraints);
         }
         video.play();
     };
@@ -1013,7 +845,7 @@ var loadVideo = function (display, stream, screenShare, requestAudioConstraints,
         // This hack for chrome only, firefox supports screen-sharing + audio natively
         if (requestAudioConstraints && browserDetails.browser == "chrome") {
             logger.info(LOG_PREFIX, "Request for audio stream");
-            navigator.getUserMedia({ audio: requestAudioConstraints }, function (stream) {
+            navigator.getUserMedia({audio: requestAudioConstraints}, function (stream) {
                 logger.info(LOG_PREFIX, "Got audio stream, add it to video stream");
                 if (video.srcObject.getAudioTracks()[0]) {
                     var mixedTrack = mixAudioTracks(stream, video.srcObject);
@@ -1031,9 +863,9 @@ var loadVideo = function (display, stream, screenShare, requestAudioConstraints,
     }
 
     function addSystemSound() {
-        chrome.runtime.sendMessage(extensionId, { type: "isInstalled" }, function (response) {
+        chrome.runtime.sendMessage(extensionId, {type: "isInstalled"}, function (response) {
             if (response) {
-                chrome.runtime.sendMessage(extensionId, { type: "getSourceId" }, function (response) {
+                chrome.runtime.sendMessage(extensionId, {type: "getSourceId"}, function (response) {
                     if (response.error) {
                         resolveCallback();
                         logger.error(LOG_PREFIX, response.error);
@@ -1117,7 +949,7 @@ var setScreenResolution = function (video, stream, constraints) {
         newHeight = constraints.video.videoHeight;
     }
     console.log("videoRatio === " + videoRatio);
-    stream.getVideoTracks()[0].applyConstraints({ height: newHeight, width: newWidth });
+    stream.getVideoTracks()[0].applyConstraints({height: newHeight, width: newWidth});
 };
 
 
@@ -1137,7 +969,7 @@ var getScreenDeviceId = function (constraints) {
     return new Promise(function (resolve, reject) {
         var o = {};
         if (window.chrome) {
-            chrome.runtime.sendMessage(extensionId, { type: "isInstalled" }, function (response) {
+            chrome.runtime.sendMessage(extensionId, {type: "isInstalled"}, function (response) {
                 //WCS-1972. fixed "TypeError"
                 if (response) {
                     o.maxWidth = constraints && constraints.video && constraints.video.width ? constraints.video.width : 320;
@@ -1145,7 +977,7 @@ var getScreenDeviceId = function (constraints) {
                     o.maxFrameRate = constraints && constraints.video && constraints.video.frameRate && constraints.video.frameRate.ideal ? constraints.video.frameRate.ideal : 30;
 
                     o.chromeMediaSource = "desktop";
-                    chrome.runtime.sendMessage(extensionId, { type: "getSourceId" }, function (response) {
+                    chrome.runtime.sendMessage(extensionId, {type: "getSourceId"}, function (response) {
                         if (response.error) {
                             reject(new Error("Screen access denied"));
                         } else {
@@ -1336,11 +1168,11 @@ function normalizeConstraints(constraints) {
             var height = constraints.video.height;
             if (browserDetails.browser == "safari") {
                 if (!width || !height) {
-                    constraints.video.width = { min: 320, max: 640 };
-                    constraints.video.height = { min: 240, max: 480 };
+                    constraints.video.width = {min: 320, max: 640};
+                    constraints.video.height = {min: 240, max: 480};
                 } else if (typeof width !== 'object' || typeof height !== 'object') {
-                    constraints.video.width = { min: width, max: width };
-                    constraints.video.height = { min: height, max: height };
+                    constraints.video.width = {min: width, max: width};
+                    constraints.video.height = {min: height, max: height};
                 }
             } else if (isNaN(width) || width === 0 || isNaN(height) || height === 0) {
                 constraints.video.width = 320;
